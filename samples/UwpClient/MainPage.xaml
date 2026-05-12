@@ -1,0 +1,146 @@
+﻿<Page
+    x:Class="UwpClient.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:UwpClient"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    mc:Ignorable="d">
+
+    <Grid Padding="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--  标题和状态  -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock
+                Margin="0,0,0,10"
+                FontSize="24"
+                FontWeight="Bold"
+                Text="IPC 客户端" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="状态: " />
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Ellipse
+                        x:Name="StatusIndicator"
+                        Width="12"
+                        Height="12"
+                        Margin="5,0,10,0"
+                        VerticalAlignment="Center"
+                        Fill="Gray" />
+                    <TextBlock
+                        x:Name="StatusText"
+                        VerticalAlignment="Center"
+                        Text="未连接" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+
+        <!--  操作按钮  -->
+        <StackPanel
+            Grid.Row="1"
+            Margin="0,0,0,20"
+            Orientation="Horizontal"
+            Spacing="10">
+            <Button
+                x:Name="ConnectButton"
+                Width="100"
+                Click="ConnectButton_Click"
+                Content="连接" />
+            <Button
+                x:Name="DisconnectButton"
+                Width="100"
+                Click="DisconnectButton_Click"
+                Content="断开"
+                IsEnabled="False" />
+            <Button
+                x:Name="ServerInfoButton"
+                Width="120"
+                Click="ServerInfoButton_Click"
+                Content="服务器信息"
+                IsEnabled="False" />
+        </StackPanel>
+
+        <!--  服务器信息显示  -->
+        <Border
+            x:Name="ServerInfoPanel"
+            Grid.Row="2"
+            Margin="0,0,0,20"
+            Padding="10"
+            Background="{ThemeResource SystemControlAcrylicElementBrush}"
+            BorderBrush="Gray"
+            BorderThickness="1"
+            Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock
+                    Margin="0,0,0,5"
+                    FontWeight="Bold"
+                    Text="服务器信息" />
+                <TextBlock x:Name="ServerVersionText" Text="版本: -" />
+                <TextBlock x:Name="ServerClientsText" Text="连接数: -" />
+                <TextBlock x:Name="ServerUptimeText" Text="运行时间: -" />
+            </StackPanel>
+        </Border>
+
+        <!--  消息发送  -->
+        <StackPanel Grid.Row="3" Margin="0,0,0,20">
+            <TextBlock Margin="0,0,0,5" Text="发送消息:" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox
+                    x:Name="MessageInput"
+                    Grid.Column="0"
+                    Margin="0,0,10,0"
+                    KeyDown="MessageInput_KeyDown"
+                    PlaceholderText="输入消息..." />
+                <Button
+                    x:Name="SendButton"
+                    Grid.Column="1"
+                    Width="80"
+                    Click="SendButton_Click"
+                    Content="发送"
+                    IsEnabled="False" />
+            </Grid>
+
+            <!--  进度条  -->
+            <ProgressBar
+                x:Name="ProgressBar"
+                Height="4"
+                Margin="0,10,0,0"
+                Visibility="Collapsed" />
+        </StackPanel>
+
+        <!--  日志输出  -->
+        <StackPanel Grid.Row="4">
+            <Grid Margin="0,0,0,5">
+                <TextBlock HorizontalAlignment="Left" Text="日志:" />
+                <Button
+                    Padding="10,5"
+                    HorizontalAlignment="Right"
+                    Click="ClearLogButton_Click"
+                    Content="清除" />
+            </Grid>
+            <Border BorderBrush="Gray" BorderThickness="1">
+                <ScrollViewer Height="300" Padding="10">
+                    <TextBlock x:Name="LogText" TextWrapping="Wrap" />
+                </ScrollViewer>
+            </Border>
+        </StackPanel>
+    </Grid>
+</Page>

@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Extensions.Logging" Version="2.1.1" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="2.1.1" />
+		<PackageReference Include="MessagePack" Version="3.1.4" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\..\src\Windows.IPC.Contracts\Windows.IPC.Contracts.csproj" />
+	  <ProjectReference Include="..\..\src\Windows.IPC.Extensions\Windows.IPC.Extensions.csproj" />
+	  <ProjectReference Include="..\..\src\Windows.IPC\Windows.IPC.csproj" />
+	</ItemGroup>
+
+</Project>

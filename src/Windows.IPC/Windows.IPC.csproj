@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+	  <LangVersion>9.0</LangVersion>
+	  <Nullable>enable</Nullable>
+	  <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	  <GenerateDocumentationFile>true</GenerateDocumentationFile>
+	  <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="3.1.4" />
+	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="2.1.1" />
+	<PackageReference Include="System.IO.Pipelines" Version="4.5.2" />
+	<PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
+	<PackageReference Include="System.Threading.Channels" Version="4.5.0" />
+  </ItemGroup>
+
+	<ItemGroup>
+		<!-- .NET Standard 2.0 需要额外引用 -->
+		<PackageReference Include="System.Memory" Version="4.5.5" />
+		<PackageReference Include="System.Buffers" Version="4.5.1" />
+	</ItemGroup>
+
+</Project>

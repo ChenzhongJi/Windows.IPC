@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "UwpClient": {
+      "commandName": "MsixPackage"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	  <TargetFramework>netstandard2.0</TargetFramework>
+	  <LangVersion>8.0</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Windows.IPC.Contracts\Windows.IPC.Contracts.csproj" />
+    <ProjectReference Include="..\Windows.IPC.UWP\Windows.IPC.UWP.csproj" />
+    <ProjectReference Include="..\Windows.IPC\Windows.IPC.csproj" />
+  </ItemGroup>
+</Project>

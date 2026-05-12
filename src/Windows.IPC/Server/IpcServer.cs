@@ -1,0 +1,742 @@
+﻿using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Threading;
+using System.Threading.Tasks;
+using Windows.IPC.Abstractions;
+using Windows.IPC.Exceptions;
+using Windows.IPC.Transport;
+
+namespace Windows.IPC.Server
+{
+    /// <summary>
+    /// IPC 服务端
+    /// </summary>
+    public class IpcServer : IDisposable
+    {
+        private readonly IpcServerOptions _options;
+        private readonly ILogger? _logger;
+        private readonly ClientManager _clientManager;
+        private readonly MessageDispatcher _dispatcher;
+
+        private readonly List<Task> _listenerTasks = new List<Task>();
+        private CancellationTokenSource? _serverCts;
+        private bool _isRunning;
+        private bool _disposed;
+        private int _disposeState = 0;  // 0 = 未释放, 1 = 正在释放, 2 = 已释放
+        private readonly object _lock = new object();
+
+        public bool IsRunning
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _isRunning;
+                }
+            }
+            private set
+            {
+                lock (_lock)
+                {
+                    _isRunning = value;
+                }
+            }
+        }
+
+        public int ConnectedClientCount => _clientManager.ClientCount;
+
+        /// <summary>
+        /// 客户端连接事件
+        /// </summary>
+        public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
+
+        /// <summary>
+        /// 客户端断开事件
+        /// </summary>
+        public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
+
+        /// <summary>
+        /// 收到通知消息事件
+        /// </summary>
+        public event EventHandler<NotificationReceivedEventArgs>? NotificationReceived;
+
+        /// <summary>
+        /// 客户端鉴权失败事件
+        /// </summary>
+        public event EventHandler<ClientAuthenticationEventArgs>? ClientAuthenticationFailed;
+        /// <summary>
+        /// 客户端鉴权成功事件
+        /// </summary>
+        public event EventHandler<ClientAuthenticationEventArgs>? ClientAuthenticationSucceeded;
+
+
+        public IpcServer(IpcServerOptions? options = null, ILogger? logger = null)
+        {
+            _options = options ?? new IpcServerOptions();
+            _logger = logger;
+            _clientManager = new ClientManager(_logger);
+            _dispatcher = new MessageDispatcher(_logger);
+
+            // 订阅客户端事件
+            _clientManager.ClientConnected += OnClientConnected;
+            _clientManager.ClientDisconnected += OnClientDisconnected;
+
+            // 注册默认的心跳处理器
+            if (_options.AutoHandleHeartbeat)
+            {
+                RegisterHandler(new HeartbeatHandler());
+            }
+        }
+
+        /// <summary>
+        /// 注册消息处理器
+        /// </summary>
+        public void RegisterHandler(IMessageHandler handler)
+        {
+            _dispatcher.RegisterHandler(handler);
+        }
+
+        /// <summary>
+        /// 注销消息处理器
+        /// </summary>
+        public bool UnregisterHandler(string messageType)
+        {
+            return _dispatcher.UnregisterHandler(messageType);
+        }
+
+        /// <summary>
+        /// 启动服务端
+        /// </summary>
+        public Task StartAsync(CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+
+            if (IsRunning)
+            {
+                _logger?.LogWarning("Server is already running");
+                return Task.CompletedTask;
+            }
+
+            _logger?.LogInformation("Starting IPC server on pipe: {PipeName}", _options.PipeOptions.PipeName);
+
+            _serverCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            IsRunning = true;
+
+            // 启动少量监听器（通常 2-3 个足够）
+            // 每个监听器会循环创建管道实例
+            int listenerCount = Math.Min(3, _options.MaxConcurrentClients);
+
+            for (int i = 0; i < listenerCount; i++)
+            {
+                var listenerTask = Task.Run(() => ListenerLoopAsync(i, _serverCts.Token), _serverCts.Token);
+                _listenerTasks.Add(listenerTask);
+            }
+
+            _logger?.LogInformation("IPC server started with {Count} listener(s)", listenerCount);
+
+            return Task.CompletedTask;
+        }
+
+
+        /// <summary>
+        /// 停止服务端
+        /// </summary>
+        public async Task StopAsync()
+        {
+            ThrowIfDisposed();
+
+            if (!IsRunning)
+            {
+                return;
+            }
+
+            await StopCoreAsync(isDisposing: false).ConfigureAwait(false);
+        }
+
+        private async Task StopCoreAsync(bool isDisposing)
+        {
+            _logger?.LogInformation("Stopping IPC server...");
+
+            IsRunning = false;
+
+            // 取消所有监听器
+            _serverCts?.Cancel();
+
+            // 等待所有监听器完成
+            if (_listenerTasks.Count > 0)
+            {
+                try
+                {
+                    await Task.WhenAll(_listenerTasks).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Error stopping listeners");
+                }
+            }
+
+            _listenerTasks.Clear();
+
+            // 断开所有客户端
+            var reason = isDisposing ? "Server disposing" : "Server stopping";
+            _clientManager?.DisconnectAll(reason);
+
+            _serverCts?.Dispose();
+            _serverCts = null;
+
+            _logger?.LogInformation("IPC server stopped");
+        }
+
+        /// <summary>
+        /// 向指定客户端发送通知
+        /// </summary>
+        public Task<bool> SendNotificationAsync<T>(
+            string clientId,
+            T notification,
+            string messageType,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+
+            if (string.IsNullOrEmpty(messageType))
+            {
+                throw new ArgumentException("MessageType cannot be null or empty", nameof(messageType));
+            }
+
+            // 序列化通知数据
+            byte[] payload;
+            try
+            {
+                payload = MessagePack.MessagePackSerializer.Serialize(notification);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to serialize notification of type {Type}", typeof(T).Name);
+                throw;
+            }
+
+            // 创建通知消息
+            var notificationMessage = new NotificationMessage
+            {
+                MessageId = Guid.NewGuid().ToString("N"),
+                MessageType = messageType,
+                Payload = payload
+            };
+
+            _logger?.LogTrace("Sending notification {MessageType} to client {ClientId}", messageType, clientId);
+
+            return _clientManager.SendToClientAsync(clientId, notificationMessage, cancellationToken);
+        }
+
+        /// <summary>
+        /// 广播通知给所有客户端
+        /// </summary>
+        public async Task<int> BroadcastNotificationAsync<T>(
+            T notification,
+            string messageType,
+            Func<ConnectedClient, bool>? predicate = null,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+
+            if (string.IsNullOrEmpty(messageType))
+            {
+                throw new ArgumentException("MessageType cannot be null or empty", nameof(messageType));
+            }
+
+            // 序列化通知数据
+            byte[] payload;
+            try
+            {
+                payload = MessagePack.MessagePackSerializer.Serialize(notification);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to serialize notification of type {Type}", typeof(T).Name);
+                throw;
+            }
+
+            // 创建通知消息
+            var notificationMessage = new NotificationMessage
+            {
+                MessageId = Guid.NewGuid().ToString("N"),
+                MessageType = messageType,
+                Payload = payload
+            };
+
+            _logger?.LogTrace("Broadcasting notification {MessageType}", messageType);
+
+            var count = await _clientManager.BroadcastAsync(notificationMessage, predicate, cancellationToken)
+                .ConfigureAwait(false);
+
+            _logger?.LogDebug("Broadcast {MessageType} sent to {Count} clients", messageType, count);
+
+            return count;
+        }
+
+        /// <summary>
+        /// 获取所有已连接的客户端
+        /// </summary>
+        public IReadOnlyList<ConnectedClient> GetConnectedClients()
+        {
+            return _clientManager.GetAllClients();
+        }
+
+        /// <summary>
+        /// 监听器循环
+        /// </summary>
+        private async Task ListenerLoopAsync(int listenerId, CancellationToken cancellationToken)
+        {
+            _logger?.LogDebug("Listener {ListenerId} started", listenerId);
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                NamedPipeServerStream pipeServer = null;
+
+                try
+                {
+                    // 创建新的管道实例
+                    pipeServer = CreatePipeServer();
+
+                    _logger?.LogTrace("Listener {ListenerId} waiting for connection...", listenerId);
+
+                    // 等待客户端连接
+                    await pipeServer.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        pipeServer?.Dispose();
+                        break;
+                    }
+
+                    _logger?.LogDebug("Listener {ListenerId} accepted connection", listenerId);
+
+                    // ⭐ 新增：客户端鉴权
+                    if (_options.ClientAuthenticator != null)
+                    {
+                        var authResult = await AuthenticateClientAsync(pipeServer, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        if (!authResult.IsAuthenticated)
+                        {
+                            _logger?.LogWarning("Client authentication failed: {Reason}. Rejecting connection.",
+                                authResult.RejectReason);
+
+                            // 拒绝连接
+                            pipeServer.Dispose();
+                            pipeServer = null;
+                            continue;  // 继续监听下一个连接
+                        }
+
+                        _logger?.LogInformation("Client authenticated successfully");
+                    }
+
+                    // 创建连接对象
+                    var connection = new NamedPipeConnection(pipeServer, _logger);
+                    var client = new ConnectedClient(connection);
+
+                    // 添加到客户端管理器
+                    if (_clientManager.AddClient(client))
+                    {
+                        // 异步处理客户端（不等待）
+                        _ = HandleClientAsync(client, cancellationToken);
+
+                        // pipeServer 现在由 connection 管理，不要释放
+                        pipeServer = null;
+                    }
+                    else
+                    {
+                        _logger?.LogWarning("Failed to add client {ClientId}", client.ClientId);
+                        client.Dispose();
+                    }
+
+                    // 立即继续循环，创建新的管道实例等待下一个连接
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger?.LogDebug("Listener {ListenerId} cancelled", listenerId);
+                    pipeServer?.Dispose();
+                    break;
+                }
+                catch (IOException ex) when (ex.Message.Contains("管道已结束") || ex.Message.Contains("pipe has been ended"))
+                {
+                    // 正常的管道关闭，继续循环
+                    _logger?.LogTrace("Listener {ListenerId} pipe ended normally", listenerId);
+                    pipeServer?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Listener {ListenerId} error: {Message}", listenerId, ex.Message);
+
+                    pipeServer?.Dispose();
+
+                    // 发生错误时短暂延迟
+                    try
+                    {
+                        await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            _logger?.LogDebug("Listener {ListenerId} stopped", listenerId);
+        }
+
+        /// <summary>
+        /// 鉴权客户端
+        /// </summary>
+        private async Task<AuthenticationResult> AuthenticateClientAsync(
+            NamedPipeServerStream pipeServer,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                // 获取客户端身份信息
+                var identity = ClientIdentityProvider.GetClientIdentity(pipeServer, _logger);
+
+                _logger?.LogDebug("Client identity: ProcessName={ProcessName}, ProcessId={ProcessId}, Path={Path}",
+                    identity.ProcessName, identity.ProcessId, identity.ExecutablePath);
+
+                if (identity.Signature != null)
+                {
+                    _logger?.LogDebug("Client signature: IsSigned={IsSigned}, IsValid={IsValid}, Signer={Signer}",
+                        identity.Signature.IsSigned, identity.Signature.IsValid, identity.Signature.SignerName);
+                }
+
+                // 执行鉴权
+                var result = await _options.ClientAuthenticator!.AuthenticateAsync(identity, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (result.IsAuthenticated)
+                {
+                    ClientAuthenticationSucceeded?.Invoke(this, new ClientAuthenticationEventArgs
+                    {
+                        Identity = identity,
+                        Result = result
+                    });
+                }
+                else
+                {
+                    ClientAuthenticationFailed?.Invoke(this, new ClientAuthenticationEventArgs
+                    {
+                        Identity = identity,
+                        Result = result
+                    });
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error during client authentication");
+                return AuthenticationResult.Reject($"Authentication error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 创建命名管道服务器
+        /// </summary>
+        private NamedPipeServerStream CreatePipeServer()
+        {
+            // 优先使用自定义 SDDL
+            string sddl = _options.PipeOptions.SecurityDescriptor;
+
+            // 如果没有自定义 SDDL，根据安全模式获取
+            if (string.IsNullOrEmpty(sddl) && _options.SecurityMode != PipeSecurityMode.Default)
+            {
+                sddl = PipeSecurityHelper.GetSddlForMode(_options.SecurityMode);
+            }
+
+            // 如果有 SDDL，使用原生 API 创建
+            if (!string.IsNullOrEmpty(sddl))
+            {
+                try
+                {
+                    _logger?.LogDebug("Creating pipe with SDDL security: {Mode}", _options.SecurityMode);
+
+                    var pipeServer = NativePipe.CreateWithSddl(
+                _options.PipeOptions.PipeName,
+                _options.MaxConcurrentClients,
+                _options.PipeOptions.BufferSize,
+                sddl);
+
+                    _logger?.LogInformation("Successfully created pipe with custom security");
+                    return pipeServer;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Failed to create pipe with custom security, falling back to default");
+                }
+            }
+
+            // 降级方案：使用默认安全设置
+            _logger?.LogInformation("Creating pipe with default security settings");
+
+            var defaultPipeServer = new NamedPipeServerStream(
+                pipeName: _options.PipeOptions.PipeName,
+                direction: PipeDirection.InOut,
+                maxNumberOfServerInstances: _options.MaxConcurrentClients,
+                transmissionMode: PipeTransmissionMode.Byte,
+                options: System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.WriteThrough,
+                inBufferSize: _options.PipeOptions.BufferSize,
+                outBufferSize: _options.PipeOptions.BufferSize);
+
+            return defaultPipeServer;
+        }
+
+        /// <summary>
+        /// 创建管道安全描述符
+        /// </summary>
+        private PipeSecurity CreatePipeSecurity()
+        {
+            var pipeSecurity = new PipeSecurity();
+
+            try
+            {
+                // 方法1: 使用 SecurityIdentifier
+
+                // Everyone - 读写权限
+                var everyoneSid = new SecurityIdentifier(WellKnownSidType.WorldSid, null);
+                pipeSecurity.AddAccessRule(new PipeAccessRule(
+                    everyoneSid,
+                    PipeAccessRights.ReadWrite,
+                    AccessControlType.Allow));
+
+                // SYSTEM - 完全控制
+                var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                pipeSecurity.AddAccessRule(new PipeAccessRule(
+                    systemSid,
+                    PipeAccessRights.FullControl,
+                    AccessControlType.Allow));
+
+                // Administrators - 完全控制
+                var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                pipeSecurity.AddAccessRule(new PipeAccessRule(
+                    adminsSid,
+                    PipeAccessRights.FullControl,
+                    AccessControlType.Allow));
+
+                // 当前用户 - 完全控制
+                var currentUser = WindowsIdentity.GetCurrent();
+                if (currentUser?.User != null)
+                {
+                    pipeSecurity.AddAccessRule(new PipeAccessRule(
+                        currentUser.User,
+                        PipeAccessRights.FullControl,
+                        AccessControlType.Allow));
+                }
+
+                _logger?.LogDebug("PipeSecurity created successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to create detailed PipeSecurity, using default");
+                // 如果失败，返回 null 使用默认安全设置
+                return null;
+            }
+
+            return pipeSecurity;
+        }
+
+        /// <summary>
+        /// 处理客户端消息
+        /// </summary>
+        private async Task HandleClientAsync(ConnectedClient client, CancellationToken cancellationToken)
+        {
+            _logger?.LogDebug("Started handling client {ClientId}", client.ClientId);
+
+            try
+            {
+                while (!_disposed && !cancellationToken.IsCancellationRequested && client.IsConnected)
+                {
+                    var message = await client.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+
+                    if (message == null)
+                    {
+                        _logger?.LogDebug("Client {ClientId} connection closed", client.ClientId);
+                        break;
+                    }
+
+                    // 处理不同类型的消息
+                    if (message is RequestMessage request)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var response = await _dispatcher.DispatchRequestAsync(request, client, cancellationToken)
+                                    .ConfigureAwait(false);
+
+                                await client.SendAsync(response, cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.LogError(ex, "Error processing request from client {ClientId}", client.ClientId);
+                            }
+                        }, cancellationToken);
+                    }
+                    else if (message is NotificationMessage notification)
+                    {
+                        // 忽略心跳通知，不触发事件
+                        if (notification.MessageType == "Heartbeat")
+                        {
+                            _logger?.LogTrace("Received heartbeat from client {ClientId}", client.ClientId);
+                            // 可以更新客户端的最后活动时间
+                            client.Metadata.LastHeartbeat = DateTime.UtcNow;
+                        }
+                        else
+                        {
+                            OnNotificationReceived(client, notification);
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger?.LogDebug("Client {ClientId} handling cancelled", client.ClientId);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error handling client {ClientId}", client.ClientId);
+            }
+            finally
+            {
+                _clientManager.RemoveClient(client.ClientId, "Handler completed");
+            }
+
+            _logger?.LogDebug("Stopped handling client {ClientId}", client.ClientId);
+        }
+
+        #region Event Handlers
+
+        private void OnClientConnected(object? sender, ClientConnectedEventArgs e)
+        {
+            _logger?.LogInformation("Client {ClientId} connected", e.ClientId);
+            ClientConnected?.Invoke(this, e);
+        }
+
+        private void OnClientDisconnected(object? sender, ClientDisconnectedEventArgs e)
+        {
+            _logger?.LogInformation("Client {ClientId} disconnected. Reason: {Reason}",
+                e.ClientId, e.Reason);
+            ClientDisconnected?.Invoke(this, e);
+        }
+
+        private void OnNotificationReceived(ConnectedClient client, NotificationMessage notification)
+        {
+            NotificationReceived?.Invoke(this, new NotificationReceivedEventArgs
+            {
+                ClientId = client.ClientId,
+                MessageType = notification.MessageType,
+                Payload = notification.Payload
+            });
+        }
+
+        #endregion
+
+        public void Dispose()
+        {
+            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                StopCoreAsync(isDisposing: true)
+                    .ConfigureAwait(false)
+                    .GetAwaiter()
+                    .GetResult();
+
+                _dispatcher?.Dispose();
+                _clientManager?.Dispose();
+
+                _logger?.LogDebug("IpcServer disposed");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _disposeState, 2);
+                _disposed = true;
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await StopCoreAsync(isDisposing: true).ConfigureAwait(false);
+
+                _dispatcher?.Dispose();
+                _clientManager?.Dispose();
+
+                _logger?.LogDebug("IpcServer disposed (async)");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _disposeState, 2);
+                _disposed = true;
+            }
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(IpcServer));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 通知接收事件参数（服务端）
+    /// </summary>
+    public class NotificationReceivedEventArgs : EventArgs
+    {
+        public string ClientId { get; set; } = string.Empty;
+        public string MessageType { get; set; } = string.Empty;
+        public byte[] Payload { get; set; } = Array.Empty<byte>();
+    }
+
+    /// <summary>
+    /// 鉴权结果事件参数（服务端）
+    /// </summary>
+    public class ClientAuthenticationEventArgs : EventArgs
+    {
+        public ClientIdentity Identity { get; set; }
+        public AuthenticationResult Result { get; set; }
+    }
+
+    /// <summary>
+    /// 默认的心跳处理器
+    /// </summary>
+    internal class HeartbeatHandler : MessageHandler<object, object>
+    {
+        public override string MessageType => "Heartbeat";
+
+        protected override Task<object> HandleAsync(
+            object request,
+            ConnectedClient client,
+            CancellationToken cancellationToken)
+        {
+            // 心跳不需要响应数据
+            return Task.FromResult(new object());
+        }
+    }
+}
