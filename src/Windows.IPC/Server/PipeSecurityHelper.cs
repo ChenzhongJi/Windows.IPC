@@ -36,6 +36,7 @@ namespace Windows.IPC.Server
             "(A;;GA;;;SY)" +                    // SYSTEM: 完全访问
             "(A;;GA;;;BA)" +                    // Administrators: 完全访问
             "(A;;GRGW;;;IU)" +                  // Interactive Users: 读写
+            "(A;;GRGW;;;AC)" +                  // AppContainer
             "(A;;GRGW;;;S-1-15-2-1)";           // ALL_APP_PACKAGES: 读写
 
         /// <summary>

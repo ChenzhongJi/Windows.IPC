@@ -467,10 +467,10 @@ namespace Windows.IPC.Server
                     _logger?.LogDebug("Creating pipe with SDDL security: {Mode}", _options.SecurityMode);
 
                     var pipeServer = NativePipe.CreateWithSddl(
-                _options.PipeOptions.PipeName,
-                _options.MaxConcurrentClients,
-                _options.PipeOptions.BufferSize,
-                sddl);
+                        _options.PipeOptions.PipeName,
+                        _options.MaxConcurrentClients,
+                        _options.PipeOptions.BufferSize,
+                        sddl);
 
                     _logger?.LogInformation("Successfully created pipe with custom security");
                     return pipeServer;
