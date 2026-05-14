@@ -28,6 +28,7 @@ namespace Windows.IPC.Transport
         private bool _disposed;
 
         public string ConnectionId { get; }
+
         public ConnectionState State
         {
             get => _state;
@@ -37,11 +38,9 @@ namespace Windows.IPC.Transport
                 {
                     var oldState = _state;
                     _state = value;
-                    StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs
-                    {
-                        OldState = oldState,
-                        NewState = value
-                    });
+                    StateChanged?.Invoke(
+                    this,
+                    new ConnectionStateChangedEventArgs { OldState = oldState, NewState = value });
                 }
             }
         }
@@ -105,8 +104,11 @@ namespace Windows.IPC.Transport
                 await _pipeStream.WriteAsync(frameBytes, 0, frameBytes.Length, cancellationToken).ConfigureAwait(false);
                 await _pipeStream.FlushAsync(cancellationToken).ConfigureAwait(false);
 
-                _logger?.LogTrace("Sent {FrameType} message {MessageId}, {Size} bytes",
-                    frameType, message.MessageId, frameBytes.Length);
+                _logger?.LogTrace(
+                "Sent {FrameType} message {MessageId}, {Size} bytes",
+                frameType,
+                message.MessageId,
+                frameBytes.Length);
             }
             catch (IOException ex)
             {
@@ -141,12 +143,34 @@ namespace Windows.IPC.Transport
                             return message;
                         }
 
-                        // 读取更多数据
-                        int bytesRead = await _pipeStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+                        // 可选：在读取前检查连接状态，避免不必要的异常
+                        if (!_pipeStream.IsConnected)
+                        {
+                            State = ConnectionState.Disconnected;
+                            return null;
+                        }
+
+                        // 创建链接的取消令牌源，用于在取消时取消读取操作
+                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+                        // 使用 Task.WhenAny 来确保取消令牌能够及时响应
+                        var readTask = _pipeStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
+                        var cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
+
+                        var completedTask = await Task.WhenAny(readTask, cancelTask).ConfigureAwait(false);
+
+                        if (completedTask == cancelTask)
+                        {
+                            // 取消令牌被触发，这将引发 OperationCanceledException
+                            await cancelTask;
+                        }
+
+                        int bytesRead = await readTask.ConfigureAwait(false);
 
                         if (bytesRead == 0)
                         {
                             _logger?.LogWarning("Connection closed by remote");
+                            _receiveBuffer.Clear();
                             State = ConnectionState.Disconnected;
                             return null;
                         }
@@ -160,11 +184,22 @@ namespace Windows.IPC.Transport
                     ArrayPool<byte>.Shared.Return(buffer);
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // 取消不算故障，直接抛出让调用方处理
+                throw;
+            }
             catch (IOException ex)
             {
-                _logger?.LogError(ex, "Failed to receive message");
+                _logger?.LogError(ex, "Pipe I/O error");
                 State = ConnectionState.Faulted;
                 throw new ConnectionException("Failed to receive message", ex);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                _logger?.LogError(ex, "Pipe disposed during receive");
+                State = ConnectionState.Faulted;
+                throw new ConnectionException("Connection has been disposed", ex);
             }
             finally
             {
@@ -174,7 +209,8 @@ namespace Windows.IPC.Transport
 
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
 
             _disposed = true;
             State = ConnectionState.Disconnected;
@@ -210,6 +246,8 @@ namespace Windows.IPC.Transport
                 }
             }
 
+            public void Clear() { _buffer.Clear(); }
+
             public bool TryDecodeMessage(out IMessage? message)
             {
                 message = null;
@@ -233,7 +271,8 @@ namespace Windows.IPC.Transport
                 {
                     MessageFrame.FrameType.Request => MessagePackSerializer.Deserialize<RequestMessage>(payloadBytes),
                     MessageFrame.FrameType.Response => MessagePackSerializer.Deserialize<ResponseMessage>(payloadBytes),
-                    MessageFrame.FrameType.Notification => MessagePackSerializer.Deserialize<NotificationMessage>(payloadBytes),
+                    MessageFrame.FrameType.Notification => MessagePackSerializer.Deserialize<NotificationMessage>(
+                        payloadBytes),
                     MessageFrame.FrameType.Heartbeat => null,
                     _ => throw new ProtocolException($"Unknown frame type: {frameType}")
                 };
@@ -244,10 +283,7 @@ namespace Windows.IPC.Transport
                 return true;
             }
 
-            public void Dispose()
-            {
-                _buffer.Clear();
-            }
+            public void Dispose() { _buffer.Clear(); }
         }
     }
 }

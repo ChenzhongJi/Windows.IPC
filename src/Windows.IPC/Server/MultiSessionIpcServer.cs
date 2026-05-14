@@ -24,12 +24,14 @@ namespace Windows.IPC.Server
         private bool _isRunning;
 
         public SessionManager SessionManager => _sessionManager;
+
         public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
+
         public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
+
         public event EventHandler<NotificationReceivedEventArgs>? NotificationReceived;
 
-        public int TotalConnectedClients =>
-            _sessionServers.Values.Sum(s => s.ConnectedClientCount);
+        public int TotalConnectedClients => _sessionServers.Values.Sum(s => s.ConnectedClientCount);
 
         public MultiSessionIpcServer(
             IpcServerOptions baseOptions,
@@ -69,8 +71,9 @@ namespace Windows.IPC.Server
             }
 
             _isRunning = true;
-            _logger?.LogInformation("Multi-session IPC server started. Monitoring {Count} sessions",
-                _sessionServers.Count);
+            _logger?.LogInformation(
+            "Multi-session IPC server started. Monitoring {Count} sessions",
+            _sessionServers.Count);
         }
 
         /// <summary>
@@ -124,8 +127,8 @@ namespace Windows.IPC.Server
             string messageType,
             CancellationToken cancellationToken = default)
         {
-            var tasks = _sessionServers.Values.Select(server =>
-                server.BroadcastNotificationAsync(notification, messageType, null, cancellationToken));
+            var tasks = _sessionServers.Values
+                .Select(server => server.BroadcastNotificationAsync(notification, messageType, null, cancellationToken));
 
             var results = await Task.WhenAll(tasks);
             return results.Sum();
@@ -156,11 +159,7 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 将消息从一个 Session 路由到另一个 Session
         /// </summary>
-        public async Task<bool> RouteMessageAsync<T>(
-            int fromSessionId,
-            int toSessionId,
-            T message,
-            string messageType)
+        public async Task<bool> RouteMessageAsync<T>(int fromSessionId, int toSessionId, T message, string messageType)
         {
             if (_sessionServers.TryGetValue(toSessionId, out var targetServer))
             {
@@ -174,10 +173,7 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 向特定用户的 Session 发送消息
         /// </summary>
-        public async Task<int> BroadcastToUserAsync<T>(
-            string userName,
-            T notification,
-            string messageType)
+        public async Task<int> BroadcastToUserAsync<T>(string userName, T notification, string messageType)
         {
             var targetSessions = _sessionManager.GetActiveSessions()
                 .Where(s => s.UserName.Equals(userName, StringComparison.OrdinalIgnoreCase))
@@ -206,14 +202,15 @@ namespace Windows.IPC.Server
 
                 var sessionOptions = new IpcServerOptions
                 {
-                    PipeOptions = new PipeOptions
-                    {
-                        // ⭐ 关键：使用 Global\ 前缀使管道跨 Session 可见
-                        PipeName = $"Global\\{pipeName}",
-                        MaxServerInstances = _baseOptions.PipeOptions.MaxServerInstances,
-                        BufferSize = _baseOptions.PipeOptions.BufferSize,
-                        SecurityDescriptor = _baseOptions.PipeOptions.SecurityDescriptor
-                    },
+                    PipeOptions =
+                        new PipeOptions
+                        {
+                            // ⭐ 关键：使用 Global\ 前缀使管道跨 Session 可见
+                            PipeName = $"Global\\{pipeName}",
+                            MaxServerInstances = _baseOptions.PipeOptions.MaxServerInstances,
+                            BufferSize = _baseOptions.PipeOptions.BufferSize,
+                            SecurityDescriptor = _baseOptions.PipeOptions.SecurityDescriptor
+                        },
                     MaxConcurrentClients = _baseOptions.MaxConcurrentClients,
                     AutoHandleHeartbeat = _baseOptions.AutoHandleHeartbeat,
                     SecurityMode = _baseOptions.SecurityMode,
@@ -237,8 +234,11 @@ namespace Windows.IPC.Server
 
                 _sessionServers[session.SessionId] = server;
 
-                _logger?.LogInformation("Created IPC server for session {SessionId} ({UserName}) on pipe {PipeName}",
-                    session.SessionId, session.UserName, pipeName);
+                _logger?.LogInformation(
+                "Created IPC server for session {SessionId} ({UserName}) on pipe {PipeName}",
+                session.SessionId,
+                session.UserName,
+                pipeName);
             }
             catch (Exception ex)
             {
@@ -272,7 +272,8 @@ namespace Windows.IPC.Server
 
         public void Dispose()
         {
-            if (_disposed) return;
+            if (_disposed)
+                return;
             _disposed = true;
 
             StopAsync().GetAwaiter().GetResult();
@@ -289,8 +290,11 @@ namespace Windows.IPC.Server
     public class SessionServerInfo
     {
         public int SessionId { get; set; }
+
         public string UserName { get; set; } = string.Empty;
+
         public int ConnectedClients { get; set; }
+
         public bool IsRunning { get; set; }
     }
 }

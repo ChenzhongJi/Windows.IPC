@@ -129,7 +129,7 @@ namespace Windows.IPC.Server
 
             // 启动少量监听器（通常 2-3 个足够）
             // 每个监听器会循环创建管道实例
-            int listenerCount = Math.Min(3, _options.MaxConcurrentClients);
+            int listenerCount = Math.Max(3, _options.MaxConcurrentClients);
 
             for (int i = 0; i < listenerCount; i++)
             {
@@ -468,7 +468,7 @@ namespace Windows.IPC.Server
 
                     var pipeServer = NativePipe.CreateWithSddl(
                         _options.PipeOptions.PipeName,
-                        _options.MaxConcurrentClients,
+                        _options.PipeOptions.MaxServerInstances,
                         _options.PipeOptions.BufferSize,
                         sddl);
 

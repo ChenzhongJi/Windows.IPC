@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
+using Windows.IPC.Serialization;
 
 namespace Windows.IPC.Server
 {
@@ -42,7 +43,7 @@ namespace Windows.IPC.Server
             try
             {
                 // 1. 反序列化请求 Payload
-                var requestData = MessagePackSerializer.Deserialize<TRequest>(request.Payload);
+                var requestData = MessageSerializer.Deserialize<TRequest>(request.Payload);
 
                 // 2. 调用业务处理方法
                 var responseData = await HandleAsync(requestData, client, cancellationToken)

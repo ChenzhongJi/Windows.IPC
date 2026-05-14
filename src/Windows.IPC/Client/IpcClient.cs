@@ -49,11 +49,9 @@ namespace Windows.IPC.Client
                     {
                         var oldState = _state;
                         _state = value;
-                        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs
-                        {
-                            OldState = oldState,
-                            NewState = value
-                        });
+                        StateChanged?.Invoke(
+                        this,
+                        new ConnectionStateChangedEventArgs { OldState = oldState, NewState = value });
                     }
                 }
             }
@@ -189,8 +187,8 @@ namespace Windows.IPC.Client
 
             // 取消所有待处理的请求
             var exception = isDisposing
-            ? new ObjectDisposedException(nameof(IpcClient))
-            : (Exception)new ConnectionException("Client disconnected");
+                ? new ObjectDisposedException(nameof(IpcClient))
+                : (Exception)new ConnectionException("Client disconnected");
 
             _requestManager?.CancelAllRequests(exception);
 
@@ -231,18 +229,17 @@ namespace Windows.IPC.Client
             };
 
             // 3. 注册待处理请求
-            var pendingRequest = _requestManager.RegisterRequest(
-                requestMessage.MessageId,
-                timeout,
-                cancellationToken);
+            var pendingRequest = _requestManager.RegisterRequest(requestMessage.MessageId, timeout, cancellationToken);
 
             try
             {
                 // 4. 发送请求
                 await _connection!.SendAsync(requestMessage, cancellationToken).ConfigureAwait(false);
 
-                _logger?.LogDebug("Sent request {MessageId} of type {MessageType}",
-                    requestMessage.MessageId, messageType);
+                _logger?.LogDebug(
+                    "Sent request {MessageId} of type {MessageType}",
+                    requestMessage.MessageId,
+                    messageType);
 
                 // 5. 等待响应
                 var responseMessage = await pendingRequest.Task.ConfigureAwait(false);
@@ -256,8 +253,7 @@ namespace Windows.IPC.Client
                 }
 
                 // 7. 反序列化响应数据
-                var responseData = MessagePack.MessagePackSerializer.Deserialize<TResponse>(
-                    responseMessage.Payload);
+                var responseData = MessageSerializer.Deserialize<TResponse>(responseMessage.Payload);
 
                 return responseData;
             }
@@ -437,8 +433,7 @@ namespace Windows.IPC.Client
                     Payload = Array.Empty<byte>()
                 };
 
-                await _connection.SendAsync(heartbeatNotification, CancellationToken.None)
-                    .ConfigureAwait(false);
+                await _connection.SendAsync(heartbeatNotification, CancellationToken.None).ConfigureAwait(false);
 
                 _logger?.LogTrace("Heartbeat sent at {Time}", DateTime.Now);
             }
@@ -470,16 +465,11 @@ namespace Windows.IPC.Client
         }
 
         #region Event Handlers
-
         private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
-        {
-            _logger?.LogDebug("Connection state changed: {OldState} -> {NewState}", e.OldState, e.NewState);
-        }
+        { _logger?.LogDebug("Connection state changed: {OldState} -> {NewState}", e.OldState, e.NewState); }
 
         private void OnReconnectionStarted(object? sender, ReconnectionEventArgs e)
-        {
-            _logger?.LogInformation("Reconnection attempt {AttemptCount} started", e.AttemptCount);
-        }
+        { _logger?.LogInformation("Reconnection attempt {AttemptCount} started", e.AttemptCount); }
 
         private void OnReconnectionSucceeded(object? sender, ReconnectionEventArgs e)
         {
@@ -495,13 +485,10 @@ namespace Windows.IPC.Client
 
         private void OnNotificationReceived(NotificationMessage notification)
         {
-            NotificationReceived?.Invoke(this, new NotificationReceivedEventArgs
-            {
-                MessageType = notification.MessageType,
-                Payload = notification.Payload
-            });
+            NotificationReceived?.Invoke(
+            this,
+            new NotificationReceivedEventArgs { MessageType = notification.MessageType, Payload = notification.Payload });
         }
-
         #endregion
 
         /// <summary>
@@ -522,10 +509,7 @@ namespace Windows.IPC.Client
                 // 同步执行清理
                 try
                 {
-                    DisconnectCoreAsync(isDisposing: true)
-                        .ConfigureAwait(false)
-                        .GetAwaiter()
-                        .GetResult();
+                    DisconnectCoreAsync(isDisposing: true).ConfigureAwait(false).GetAwaiter().GetResult();
                 }
                 catch (Exception ex)
                 {
@@ -614,6 +598,7 @@ namespace Windows.IPC.Client
     public class NotificationReceivedEventArgs : EventArgs
     {
         public string MessageType { get; set; } = string.Empty;
+
         public byte[] Payload { get; set; } = Array.Empty<byte>();
     }
 }

@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	  <TargetFramework>net48</TargetFramework>
+	  <IsPackable>false</IsPackable>
+	<LangVersion>8.0</LangVersion>
+	<Nullable>enable</Nullable>
+  </PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="BenchmarkDotNet" Version="0.13.10" />
+		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
+		<PackageReference Include="xunit" Version="2.4.2" />
+		<PackageReference Include="xunit.runner.visualstudio" Version="2.4.5" />
+		<PackageReference Include="Microsoft.Extensions.Logging" Version="2.1.1" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Console" Version="2.1.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\..\src\Windows.IPC.Contracts\Windows.IPC.Contracts.csproj" />
+	  <ProjectReference Include="..\..\src\Windows.IPC\Windows.IPC.csproj" />
+	</ItemGroup>
+</Project>

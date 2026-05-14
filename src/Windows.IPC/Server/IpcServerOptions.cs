@@ -1,4 +1,5 @@
-﻿using Windows.IPC.Transport;
+﻿using System;
+using Windows.IPC.Transport;
 
 namespace Windows.IPC.Server
 {
@@ -7,6 +8,8 @@ namespace Windows.IPC.Server
     /// </summary>
     public class IpcServerOptions
     {
+        private int _maxConcurrentClients = 10;
+
         /// <summary>
         /// 管道选项
         /// </summary>
@@ -15,7 +18,19 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 最大并发客户端数
         /// </summary>
-        public int MaxConcurrentClients { get; set; } = 10;
+        public int MaxConcurrentClients
+        {
+            get => _maxConcurrentClients;
+            set
+            {
+                if (value < 1 || value > 254)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value),
+                        $"MaxConcurrentClient must be between 1 and 255. Value: {value}");
+                }
+                _maxConcurrentClients = value;
+            }
+        }
 
         /// <summary>
         /// 是否自动处理心跳消息
