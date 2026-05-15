@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
 using Windows.IPC.Exceptions;
 using Windows.IPC.Protocol;
+using Windows.IPC.Serialization;
 
 namespace Windows.IPC.Transport
 {
@@ -26,23 +27,33 @@ namespace Windows.IPC.Transport
         private readonly ReceiveBuffer _receiveBuffer = new ReceiveBuffer();
         private ConnectionState _state = ConnectionState.Connected;
         private bool _disposed;
-
+        private readonly object _stateLock = new object();
         public string ConnectionId { get; }
 
         public ConnectionState State
         {
-            get => _state;
-            private set
+            get
             {
-                if (_state != value)
+                lock (_stateLock)
                 {
-                    var oldState = _state;
-                    _state = value;
-                    StateChanged?.Invoke(
-                    this,
-                    new ConnectionStateChangedEventArgs { OldState = oldState, NewState = value });
+                    return _state;
                 }
             }
+            private set
+            {
+                lock (_stateLock)
+                {
+                    if (_state != value)
+                    {
+                        var oldState = _state;
+                        _state = value;
+                        StateChanged?.Invoke(
+                        this,
+                        new ConnectionStateChangedEventArgs { OldState = oldState, NewState = value });
+                    }
+                }
+            }
+
         }
 
         public bool IsConnected => _pipeStream?.IsConnected == true && State == ConnectionState.Connected;
@@ -79,17 +90,17 @@ namespace Windows.IPC.Transport
 
                 if (message is RequestMessage request)
                 {
-                    messageBytes = MessagePackSerializer.Serialize(request);
+                    messageBytes = MessageSerializer.Serialize(request);
                     frameType = MessageFrame.FrameType.Request;
                 }
                 else if (message is ResponseMessage response)
                 {
-                    messageBytes = MessagePackSerializer.Serialize(response);
+                    messageBytes = MessageSerializer.Serialize(response);
                     frameType = MessageFrame.FrameType.Response;
                 }
                 else if (message is NotificationMessage notification)
                 {
-                    messageBytes = MessagePackSerializer.Serialize(notification);
+                    messageBytes = MessageSerializer.Serialize(notification);
                     frameType = MessageFrame.FrameType.Notification;
                 }
                 else
@@ -269,9 +280,9 @@ namespace Windows.IPC.Transport
 
                 message = frameType switch
                 {
-                    MessageFrame.FrameType.Request => MessagePackSerializer.Deserialize<RequestMessage>(payloadBytes),
-                    MessageFrame.FrameType.Response => MessagePackSerializer.Deserialize<ResponseMessage>(payloadBytes),
-                    MessageFrame.FrameType.Notification => MessagePackSerializer.Deserialize<NotificationMessage>(
+                    MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payloadBytes),
+                    MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payloadBytes),
+                    MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(
                         payloadBytes),
                     MessageFrame.FrameType.Heartbeat => null,
                     _ => throw new ProtocolException($"Unknown frame type: {frameType}")

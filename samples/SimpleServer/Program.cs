@@ -71,7 +71,7 @@ namespace SimpleServer
             // 配置服务端
             var options = new IpcServerOptions
             {
-                PipeOptions = new Windows.IPC.Transport.PipeOptions
+                PipeOptions = new Windows.IPC.Transport.IpcPipeOptions
                 {
                     PipeName = "YourAppPipe",
                     MaxServerInstances = 10

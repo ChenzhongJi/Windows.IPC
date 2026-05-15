@@ -14,12 +14,48 @@ namespace Windows.IPC.Server
     /// </summary>
     public class SessionInfo
     {
+        private long _createdAt; // 使用 ticks 存储 DateTime
+        private long _lastSeenAt; // 使用 ticks 存储 DateTime
+        private readonly object _dateTimeLock = new object();
+
         public int SessionId { get; set; }
         public string UserName { get; set; } = string.Empty;
         public string DomainName { get; set; } = string.Empty;
         public SessionState State { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public DateTime LastSeenAt { get; set; }
+        public DateTime CreatedAt
+        {
+            get
+            {
+                lock (_dateTimeLock)
+                {
+                    return new DateTime(_createdAt);
+                }
+            }
+            set
+            {
+                lock (_dateTimeLock)
+                {
+                    _createdAt = value.Ticks;
+                }
+            }
+        }
+        public DateTime LastSeenAt
+        {
+            get
+            {
+                lock (_dateTimeLock)
+                {
+                    return new DateTime(_lastSeenAt);
+                }
+            }
+            set
+            {
+                lock (_dateTimeLock)
+                {
+                    _lastSeenAt = value.Ticks;
+                }
+            }
+        }
     }
 
     public enum SessionState

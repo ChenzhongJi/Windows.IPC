@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Windows.IPC.Client;
 using Windows.IPC.Contracts;
 using Windows.IPC.Contracts.Messages;
+using Windows.IPC.Serialization;
 using Windows.IPC.Server;
 using Windows.IPC.Transport;
 using Xunit;
@@ -22,13 +23,13 @@ namespace Windows.IPC.Tests
         {
             var serverOptions = new IpcServerOptions
             {
-                PipeOptions = new PipeOptions { PipeName = TestPipeName },
+                PipeOptions = new IpcPipeOptions { PipeName = TestPipeName },
                 AutoHandleHeartbeat = false
             };
 
             var clientOptions = new IpcClientOptions
             {
-                PipeOptions = new PipeOptions { PipeName = TestPipeName },
+                PipeOptions = new IpcPipeOptions { PipeName = TestPipeName },
                 ReconnectionPolicy = ReconnectionPolicy.Disabled,
                 HeartbeatIntervalMs = 0
             };
@@ -50,7 +51,7 @@ namespace Windows.IPC.Tests
             _client.NotificationReceived += (s, e) =>
             {
                 receivedMessageType = e.MessageType;
-                receivedData = MessagePack.MessagePackSerializer.Deserialize<BroadcastNotification>(e.Payload);
+                receivedData = MessageSerializer.Deserialize<BroadcastNotification>(e.Payload);
             };
 
             await Task.Delay(100); // 等待订阅生效

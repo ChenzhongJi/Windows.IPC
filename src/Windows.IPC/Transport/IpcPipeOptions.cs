@@ -7,7 +7,7 @@ namespace Windows.IPC.Transport
     /// <summary>
     /// 管道配置选项
     /// </summary>
-    public class PipeOptions
+    public class IpcPipeOptions
     {
         private int _maxServerInstances = 10;
 

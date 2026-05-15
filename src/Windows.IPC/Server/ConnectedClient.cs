@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -82,6 +83,10 @@ namespace Windows.IPC.Server
     /// </summary>
     public class ClientMetadata
     {
+        private long _lastHeartbeatTicks = -1; // 使用 ticks 存储 DateTime?，-1 表示 null
+        private long _lastActivityTicks; // 使用 ticks 存储 DateTime
+        private readonly object _dateTimeLock = new object();
+
         /// <summary>
         /// 客户端名称（可选）
         /// </summary>
@@ -100,17 +105,51 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 最后一次心跳时间
         /// </summary>
-        public DateTime? LastHeartbeat { get; set; }
+        public DateTime? LastHeartbeat
+        {
+            get
+            {
+                lock (_dateTimeLock)
+                {
+                    var ticks = _lastHeartbeatTicks;
+                    return ticks == -1 ? null : new DateTime(ticks);
+                }
+            }
+            set
+            {
+                lock (_dateTimeLock)
+                {
+                    var ticks = value.HasValue ? value.Value.Ticks : -1;
+                    _lastHeartbeatTicks = ticks;
+                }
+            }
+        }
 
         /// <summary>
         /// 最后一次活动时间
         /// </summary>
-        public DateTime LastActivity { get; set; } = DateTime.UtcNow;
+        public DateTime LastActivity
+        {
+            get
+            {
+                lock (_dateTimeLock)
+                {
+                    return new DateTime(_lastActivityTicks);
+                }
+            }
+            set
+            {
+                lock (_dateTimeLock)
+                {
+                    _lastActivityTicks = value.Ticks;
+                }
+            }
+        }
 
         /// <summary>
         /// 自定义属性
         /// </summary>
-        public System.Collections.Generic.Dictionary<string, object> CustomProperties { get; } =
-            new System.Collections.Generic.Dictionary<string, object>();
+        public ConcurrentDictionary<string, object> CustomProperties { get; } =
+            new ConcurrentDictionary<string, object>();
     }
 }

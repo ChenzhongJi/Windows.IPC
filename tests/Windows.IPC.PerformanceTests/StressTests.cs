@@ -45,7 +45,7 @@ namespace Windows.IPC.PerformanceTests
                 {
                     var client = new IpcClient(new IpcClientOptions
                     {
-                        PipeOptions = new PipeOptions
+                        PipeOptions = new IpcPipeOptions
                         {
                             PipeName = ServerPipeName ?? "Unknown"
                         },
@@ -182,7 +182,7 @@ Memory Growth:   {memoryGrowth / 1024.0 / 1024.0:F2} MB
             {
                 var client = new IpcClient(new IpcClientOptions
                 {
-                    PipeOptions = new PipeOptions
+                    PipeOptions = new IpcPipeOptions
                     {
                         PipeName = ServerPipeName ?? "Unknown"
                     },

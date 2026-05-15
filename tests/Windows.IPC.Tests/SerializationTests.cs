@@ -1,6 +1,7 @@
 ﻿using MessagePack;
 using System;
 using Windows.IPC.Abstractions;
+using Windows.IPC.Serialization;
 using Xunit;
 
 namespace Windows.IPC.Tests
@@ -20,8 +21,8 @@ namespace Windows.IPC.Tests
             };
 
             // Act
-            var bytes = MessagePackSerializer.Serialize(original);
-            var deserialized = MessagePackSerializer.Deserialize<RequestMessage>(bytes);
+            var bytes = MessageSerializer.Serialize(original);
+            var deserialized = MessageSerializer.Deserialize<RequestMessage>(bytes);
 
             // Assert
             Assert.Equal(original.MessageId, deserialized.MessageId);
@@ -43,8 +44,8 @@ namespace Windows.IPC.Tests
             };
 
             // Act
-            var bytes = MessagePackSerializer.Serialize(original);
-            var deserialized = MessagePackSerializer.Deserialize<ResponseMessage>(bytes);
+            var bytes = MessageSerializer.Serialize(original);
+            var deserialized = MessageSerializer.Deserialize<ResponseMessage>(bytes);
 
             // Assert
             Assert.Equal(original.MessageId, deserialized.MessageId);
@@ -67,8 +68,8 @@ namespace Windows.IPC.Tests
             };
 
             // Act
-            var bytes = MessagePackSerializer.Serialize(original);
-            var deserialized = MessagePackSerializer.Deserialize<ResponseMessage>(bytes);
+            var bytes = MessageSerializer.Serialize(original);
+            var deserialized = MessageSerializer.Deserialize<ResponseMessage>(bytes);
 
             // Assert
             Assert.Equal(original.MessageId, deserialized.MessageId);

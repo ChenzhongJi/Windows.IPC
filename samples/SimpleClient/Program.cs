@@ -5,6 +5,7 @@ using Windows.IPC.Client;
 using Windows.IPC.Contracts;
 using Windows.IPC.Contracts.Messages;
 using Windows.IPC.Extensions;
+using Windows.IPC.Serialization;
 
 namespace SimpleClient
 {
@@ -16,7 +17,7 @@ namespace SimpleClient
 
             var options = new IpcClientOptions
             {
-                PipeOptions = new Windows.IPC.Transport.PipeOptions
+                PipeOptions = new Windows.IPC.Transport.IpcPipeOptions
                 {
                     PipeName = "YourAppPipe",
                     ConnectionTimeoutMs = 5000
@@ -42,7 +43,7 @@ namespace SimpleClient
                 {
                     try
                     {
-                        var data = MessagePack.MessagePackSerializer.Deserialize<BroadcastNotification>(e.Payload);
+                        var data = MessageSerializer.Deserialize<BroadcastNotification>(e.Payload);
                         Console.ForegroundColor = ConsoleColor.Cyan;
                         Console.WriteLine($"   Broadcast: {data.Message}");
                         Console.WriteLine($"   Time: {data.Timestamp:HH:mm:ss}");

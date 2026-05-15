@@ -13,7 +13,7 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 管道选项
         /// </summary>
-        public PipeOptions PipeOptions { get; set; } = new PipeOptions();
+        public IpcPipeOptions PipeOptions { get; set; } = new IpcPipeOptions();
 
         /// <summary>
         /// 最大并发客户端数

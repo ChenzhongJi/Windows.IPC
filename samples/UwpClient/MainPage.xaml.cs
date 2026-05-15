@@ -3,6 +3,7 @@ using System;
 using Windows.IPC.Contracts;
 using Windows.IPC.Contracts.Messages;
 using Windows.IPC.Extensions;
+using Windows.IPC.Serialization;
 using Windows.IPC.UWP;
 using Windows.UI;
 using Windows.UI.Core;
@@ -52,7 +53,7 @@ namespace UwpClient
                     {
                         try
                         {
-                            var broadcast = MessagePack.MessagePackSerializer.Deserialize<BroadcastNotification>(e.Payload);
+                            var broadcast = MessageSerializer.Deserialize<BroadcastNotification>(e.Payload);
                             Log($"📢 广播: {broadcast.Message}");
                             Log($"   时间: {broadcast.Timestamp:HH:mm:ss}");
                             Log($"   类别: {broadcast.Category}");

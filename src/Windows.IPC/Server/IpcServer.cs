@@ -1,14 +1,17 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
 using Windows.IPC.Exceptions;
+using Windows.IPC.Serialization;
 using Windows.IPC.Transport;
 
 namespace Windows.IPC.Server
@@ -23,7 +26,7 @@ namespace Windows.IPC.Server
         private readonly ClientManager _clientManager;
         private readonly MessageDispatcher _dispatcher;
 
-        private readonly List<Task> _listenerTasks = new List<Task>();
+        private readonly ConcurrentBag<Task> _listenerTasks = new ConcurrentBag<Task>();
         private CancellationTokenSource? _serverCts;
         private bool _isRunning;
         private bool _disposed;
@@ -129,7 +132,7 @@ namespace Windows.IPC.Server
 
             // 启动少量监听器（通常 2-3 个足够）
             // 每个监听器会循环创建管道实例
-            int listenerCount = Math.Max(3, _options.MaxConcurrentClients);
+            int listenerCount = Math.Min(Math.Max(2, _options.MaxConcurrentClients / 4), 4);
 
             for (int i = 0; i < listenerCount; i++)
             {
@@ -184,7 +187,14 @@ namespace Windows.IPC.Server
                 }
             }
 
-            _listenerTasks.Clear();
+            // 清空 ConcurrentBag 通过不断移除元素
+            while (!_listenerTasks.IsEmpty)
+            {
+                if (_listenerTasks.TryTake(out var _))
+                {
+                    // 成功移除一个元素
+                }
+            }
 
             // 断开所有客户端
             var reason = isDisposing ? "Server disposing" : "Server stopping";
@@ -216,7 +226,7 @@ namespace Windows.IPC.Server
             byte[] payload;
             try
             {
-                payload = MessagePack.MessagePackSerializer.Serialize(notification);
+                payload = MessageSerializer.Serialize(notification);
             }
             catch (Exception ex)
             {
@@ -257,7 +267,7 @@ namespace Windows.IPC.Server
             byte[] payload;
             try
             {
-                payload = MessagePack.MessagePackSerializer.Serialize(notification);
+                payload = MessageSerializer.Serialize(notification);
             }
             catch (Exception ex)
             {
@@ -300,7 +310,7 @@ namespace Windows.IPC.Server
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                NamedPipeServerStream pipeServer = null;
+                NamedPipeServerStream? pipeServer = null;
 
                 try
                 {
@@ -451,7 +461,7 @@ namespace Windows.IPC.Server
         private NamedPipeServerStream CreatePipeServer()
         {
             // 优先使用自定义 SDDL
-            string sddl = _options.PipeOptions.SecurityDescriptor;
+            string? sddl = _options.PipeOptions.SecurityDescriptor;
 
             // 如果没有自定义 SDDL，根据安全模式获取
             if (string.IsNullOrEmpty(sddl) && _options.SecurityMode != PipeSecurityMode.Default)
@@ -470,7 +480,7 @@ namespace Windows.IPC.Server
                         _options.PipeOptions.PipeName,
                         _options.PipeOptions.MaxServerInstances,
                         _options.PipeOptions.BufferSize,
-                        sddl);
+                        sddl!);
 
                     _logger?.LogInformation("Successfully created pipe with custom security");
                     return pipeServer;
@@ -580,6 +590,18 @@ namespace Windows.IPC.Server
                                     .ConfigureAwait(false);
 
                                 await client.SendAsync(response, cancellationToken).ConfigureAwait(false);
+
+                                // 如果是心跳请求，更新客户端最后心跳时间
+                                if (request.MessageType == "Heartbeat")
+                                {
+                                    client.Metadata.LastHeartbeat = DateTime.UtcNow;
+                                    _logger?.LogTrace("Heartbeat updated for client {ClientId}", client.ClientId);
+                                }
+                                else
+                                {
+                                    client.Metadata.LastActivity = DateTime.UtcNow;
+                                    _logger?.LogTrace("Activity updated for client {ClientId}", client.ClientId);
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -589,17 +611,7 @@ namespace Windows.IPC.Server
                     }
                     else if (message is NotificationMessage notification)
                     {
-                        // 忽略心跳通知，不触发事件
-                        if (notification.MessageType == "Heartbeat")
-                        {
-                            _logger?.LogTrace("Received heartbeat from client {ClientId}", client.ClientId);
-                            // 可以更新客户端的最后活动时间
-                            client.Metadata.LastHeartbeat = DateTime.UtcNow;
-                        }
-                        else
-                        {
-                            OnNotificationReceived(client, notification);
-                        }
+                        OnNotificationReceived(client, notification);
                     }
                 }
             }

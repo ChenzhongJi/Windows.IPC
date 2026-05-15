@@ -50,12 +50,12 @@ namespace Windows.IPC.IntegrationTests
         {
             var serverOptions = new IpcServerOptions
             {
-                PipeOptions = new PipeOptions { PipeName = TestPipeName }
+                PipeOptions = new IpcPipeOptions { PipeName = TestPipeName }
             };
 
             var clientOptions = new IpcClientOptions
             {
-                PipeOptions = new PipeOptions { PipeName = TestPipeName },
+                PipeOptions = new IpcPipeOptions { PipeName = TestPipeName },
                 ReconnectionPolicy = ReconnectionPolicy.Disabled
             };
 

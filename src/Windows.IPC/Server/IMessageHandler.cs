@@ -50,7 +50,7 @@ namespace Windows.IPC.Server
                     .ConfigureAwait(false);
 
                 // 3. 序列化响应数据
-                var responsePayload = MessagePackSerializer.Serialize(responseData);
+                var responsePayload = MessageSerializer.Serialize(responseData);
 
                 // 4. 直接创建响应对象
                 return new ResponseMessage

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.IPC.Serialization;
 
 namespace Windows.IPC.UWP
 {
@@ -35,10 +36,10 @@ namespace Windows.IPC.UWP
             string messageType,
             int timeoutMs = 30000)
         {
-            var requestBytes = MessagePackSerializer.Serialize(request);
+            var requestBytes = MessageSerializer.Serialize(request);
             var responseBytes = await client.SendRequestAsync(requestBytes, messageType, timeoutMs)
                 .ConfigureAwait(false);
-            return MessagePackSerializer.Deserialize<TResponse>(responseBytes);
+            return MessageSerializer.Deserialize<TResponse>(responseBytes);
         }
 
         /// <summary>

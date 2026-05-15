@@ -14,7 +14,7 @@ namespace Windows.IPC.Client
         /// <summary>
         /// 管道选项
         /// </summary>
-        public PipeOptions PipeOptions { get; set; } = new PipeOptions();
+        public IpcPipeOptions PipeOptions { get; set; } = new IpcPipeOptions();
 
         /// <summary>
         /// 重连策略

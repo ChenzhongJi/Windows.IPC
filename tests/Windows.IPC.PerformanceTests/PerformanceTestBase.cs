@@ -44,7 +44,7 @@ namespace Windows.IPC.PerformanceTests
             var serverOptions = new IpcServerOptions
             {
                 PipeOptions =
-                    new PipeOptions
+                    new IpcPipeOptions
                     {
                         PipeName = TestPipeName + "_" + Guid.NewGuid().ToString("N").Substring(0, 8),
                         MaxServerInstances = maxServerInstances,
@@ -70,7 +70,7 @@ namespace Windows.IPC.PerformanceTests
             // 创建客户端
             var clientOptions = new IpcClientOptions
             {
-                PipeOptions = new PipeOptions { PipeName = serverOptions.PipeOptions.PipeName, BufferSize = 65536 },
+                PipeOptions = new IpcPipeOptions { PipeName = serverOptions.PipeOptions.PipeName, BufferSize = 65536 },
                 ReconnectionPolicy = ReconnectionPolicy.Disabled,
                 HeartbeatIntervalMs = 0,
             };

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Windows.IPC;
 using Windows.IPC.Client;
 using Windows.IPC.Contracts.Messages;
+using Windows.IPC.Serialization;
 using Windows.IPC.Transport;
 using Windows.IPC.UWP.Internal;
 
@@ -48,7 +49,7 @@ namespace Windows.IPC.UWP
         {
             var options = new IpcClientOptions
             {
-                PipeOptions = new PipeOptions
+                PipeOptions = new IpcPipeOptions
                 {
                     PipeName = pipeName,
                     ConnectionTimeoutMs = 5000
@@ -62,7 +63,6 @@ namespace Windows.IPC.UWP
 
             // 订阅事件
             _client.StateChanged += OnClientStateChanged;
-            _client.NotificationReceived += OnClientNotificationReceived;
             _client.NotificationReceived += OnClientNotificationReceived;
 
             State = UwpConnectionState.Disconnected;
@@ -162,7 +162,7 @@ namespace Windows.IPC.UWP
             {
                 try
                 {
-                    var progressData = MessagePack.MessagePackSerializer.Deserialize<ProgressNotification>(e.Payload);
+                    var progressData = MessageSerializer.Deserialize<ProgressNotification>(e.Payload);
                     ProgressChanged?.Invoke(this, new ProgressEventArgs
                     {
                         Percentage = progressData.Percentage,

@@ -14,7 +14,7 @@ namespace Windows.IPC.Client
     /// <summary>
     /// IPC 客户端
     /// </summary>
-    public class IpcClient : IDisposable
+    public class IpcClient : IDisposable, IAsyncDisposable
     {
         private readonly IpcClientOptions _options;
         private readonly ILogger? _logger;
@@ -288,7 +288,7 @@ namespace Windows.IPC.Client
             byte[] payload;
             try
             {
-                payload = MessagePack.MessagePackSerializer.Serialize(notification);
+                payload = MessageSerializer.Serialize(notification);
             }
             catch (Exception ex)
             {
@@ -426,16 +426,14 @@ namespace Windows.IPC.Client
 
             try
             {
-                // 创建空的心跳通知消息
-                var heartbeatNotification = new NotificationMessage
-                {
-                    MessageType = "Heartbeat",
-                    Payload = Array.Empty<byte>()
-                };
+                // 发送心跳请求并等待响应，验证连接仍然活跃
+                await SendRequestAsync<object, object>(
+                    new object(), // 空载荷
+                    "Heartbeat",
+                    5000, // 5秒超时
+                    CancellationToken.None).ConfigureAwait(false);
 
-                await _connection.SendAsync(heartbeatNotification, CancellationToken.None).ConfigureAwait(false);
-
-                _logger?.LogTrace("Heartbeat sent at {Time}", DateTime.Now);
+                _logger?.LogTrace("Heartbeat received response at {Time}", DateTime.Now);
             }
             catch (ObjectDisposedException)
             {
@@ -568,7 +566,7 @@ namespace Windows.IPC.Client
             {
                 _logger?.LogDebug("Disposing IpcClient (async)...");
 
-                await DisconnectCoreAsync(isDisposing: true).ConfigureAwait(false);
+                await Task.Run(async () => await DisconnectCoreAsync(isDisposing: true).ConfigureAwait(false)).ConfigureAwait(false);
 
                 _reconnector?.Dispose();
                 _requestManager?.Dispose();

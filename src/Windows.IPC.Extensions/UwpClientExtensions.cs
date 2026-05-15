@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Windows.IPC.Contracts;
 using Windows.IPC.Contracts.Messages;
+using Windows.IPC.Serialization;
 using Windows.IPC.UWP;
 
 namespace Windows.IPC.Extensions
@@ -75,7 +76,7 @@ namespace Windows.IPC.Extensions
             };
 
             await client.SendNotificationAsync(
-                MessagePack.MessagePackSerializer.Serialize(progress),
+                MessageSerializer.Serialize(progress),
                 MessageTypes.Progress);
         }
     }

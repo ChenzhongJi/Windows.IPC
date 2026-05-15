@@ -3,7 +3,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Transport;
@@ -203,7 +202,7 @@ namespace Windows.IPC.Server
                 var sessionOptions = new IpcServerOptions
                 {
                     PipeOptions =
-                        new PipeOptions
+                        new IpcPipeOptions
                         {
                             // ⭐ 关键：使用 Global\ 前缀使管道跨 Session 可见
                             PipeName = $"Global\\{pipeName}",

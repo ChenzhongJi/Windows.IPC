@@ -115,6 +115,21 @@ namespace Windows.IPC.Client
         public void Stop()
         {
             _cts?.Cancel();
+
+            var taskToWait = _reconnectTask; // 获取当前任务的快照以避免竞态条件
+            if (taskToWait != null && !taskToWait.IsCompleted)
+            {
+                try
+                {
+                    // 在某些情况下同步等待可能导致阻塞，但我们必须等待任务完成
+                    // 以确保正确清理
+                    taskToWait.GetAwaiter().GetResult(); // 等待任务完成
+                }
+                catch
+                {
+                    // 忽略重连任务的异常，因为我们正在停止它
+                }
+            }
             _reconnectTask = null;
         }
 
