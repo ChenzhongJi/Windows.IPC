@@ -23,9 +23,7 @@ namespace Windows.IPC.Protocol
         {
             Request = 1,
             Response = 2,
-            Notification = 3,
-            Heartbeat = 4,
-            Handshake = 5
+            Notification = 3
         }
 
         /// <summary>

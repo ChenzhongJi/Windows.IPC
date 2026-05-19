@@ -280,8 +280,6 @@ namespace Windows.IPC.Transport
                     MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payloadBytes),
                     MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payloadBytes),
                     MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(payloadBytes),
-                    MessageFrame.FrameType.Heartbeat => throw new ProtocolException(
-                        "Unexpected Heartbeat frame in data channel. Heartbeat should use Request/Response pattern."),
                     _ => throw new ProtocolException($"Unknown frame type: {frameType}")
                 };
 
