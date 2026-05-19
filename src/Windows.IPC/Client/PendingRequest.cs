@@ -25,7 +25,7 @@ namespace Windows.IPC.Client
         {
             MessageId = messageId;
             CreatedAt = DateTime.UtcNow;
-            _tcs = new TaskCompletionSource<ResponseMessage>();
+            _tcs = new TaskCompletionSource<ResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
             _timeoutCts = new CancellationTokenSource(timeoutMs);
 
             // 超时处理
@@ -71,7 +71,6 @@ namespace Windows.IPC.Client
             if (_disposed) return;
             _disposed = true;
 
-            _timeoutCts?.Cancel();
             _timeoutCts?.Dispose();
             _cancellationRegistration.Dispose();
         }

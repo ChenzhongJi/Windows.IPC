@@ -604,9 +604,35 @@ namespace Windows.IPC.Server
                                     _logger?.LogTrace("Activity updated for client {ClientId}", client.ClientId);
                                 }
                             }
+                            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                            {
+                                // 服务器正在关闭，无需发送错误响应
+                                _logger?.LogDebug("Request processing cancelled for client {ClientId}", client.ClientId);
+                            }
                             catch (Exception ex)
                             {
                                 _logger?.LogError(ex, "Error processing request from client {ClientId}", client.ClientId);
+
+                                // 确保客户端总能收到响应，避免客户端永久等待超时
+                                // 原来的实现在异常时只记录日志，客户端收不到任何响应，
+                                // 导致 pending request 只能等到超时才能释放
+                                try
+                                {
+                                    var errorResponse = new ResponseMessage
+                                    {
+                                        MessageId = request.MessageId,
+                                        MessageType = request.MessageType,
+                                        IsSuccess = false,
+                                        ErrorCode = "INTERNAL_ERROR",
+                                        ErrorMessage = $"Failed to process request: {ex.Message}"
+                                    };
+                                    await client.SendAsync(errorResponse, cancellationToken).ConfigureAwait(false);
+                                }
+                                catch (Exception sendEx)
+                                {
+                                    _logger?.LogWarning(sendEx,
+                                        "Failed to send error response to client {ClientId}", client.ClientId);
+                                }
                             }
                         }, cancellationToken);
                     }
@@ -739,12 +765,12 @@ namespace Windows.IPC.Server
     /// <summary>
     /// 默认的心跳处理器
     /// </summary>
-    internal class HeartbeatHandler : MessageHandler<HeartbeatyRequest, HeartbeatResponse>
+    internal class HeartbeatHandler : MessageHandler<HeartbeatRequest, HeartbeatResponse>
     {
         public override string MessageType => "Heartbeat";
 
         protected override Task<HeartbeatResponse> HandleAsync(
-            HeartbeatyRequest request,
+            HeartbeatRequest request,
             ConnectedClient client,
             CancellationToken cancellationToken)
         {

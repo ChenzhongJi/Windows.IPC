@@ -27,7 +27,7 @@ namespace Windows.IPC.Contracts.Messages
     /// heartbeat request
     /// </summary>
     [MessagePackObject]
-    public class HeartbeatyRequest
+    public class HeartbeatRequest
     {
     }
 

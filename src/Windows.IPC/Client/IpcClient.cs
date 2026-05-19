@@ -428,8 +428,8 @@ namespace Windows.IPC.Client
             try
             {
                 // 发送心跳请求并等待响应，验证连接仍然活跃
-                var heartbeatResponse = await SendRequestAsync<HeartbeatyRequest, HeartbeatResponse>(
-                    new HeartbeatyRequest(),
+                var heartbeatResponse = await SendRequestAsync<HeartbeatRequest, HeartbeatResponse>(
+                    new HeartbeatRequest(),
                     "Heartbeat",
                     _options.HeartbeatTimeoutMs,
                     CancellationToken.None).ConfigureAwait(false);

@@ -113,7 +113,7 @@ namespace Windows.IPC.Transport
 
                 // 发送
                 await _pipeStream.WriteAsync(frameBytes, 0, frameBytes.Length, cancellationToken).ConfigureAwait(false);
-                await _pipeStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                //await _pipeStream.FlushAsync(cancellationToken).ConfigureAwait(false);
 
                 _logger?.LogTrace(
                 "Sent {FrameType} message {MessageId}, {Size} bytes",
@@ -160,9 +160,6 @@ namespace Windows.IPC.Transport
                             State = ConnectionState.Disconnected;
                             return null;
                         }
-
-                        // 创建链接的取消令牌源，用于在取消时取消读取操作
-                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
                         // 使用 Task.WhenAny 来确保取消令牌能够及时响应
                         var readTask = _pipeStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
@@ -283,7 +280,8 @@ namespace Windows.IPC.Transport
                     MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payloadBytes),
                     MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payloadBytes),
                     MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(payloadBytes),
-                    MessageFrame.FrameType.Heartbeat => null,
+                    MessageFrame.FrameType.Heartbeat => throw new ProtocolException(
+                        "Unexpected Heartbeat frame in data channel. Heartbeat should use Request/Response pattern."),
                     _ => throw new ProtocolException($"Unknown frame type: {frameType}")
                 };
 
