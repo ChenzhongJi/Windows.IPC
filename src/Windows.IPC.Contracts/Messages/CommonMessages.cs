@@ -22,4 +22,21 @@ namespace Windows.IPC.Contracts.Messages
         [Key(0)]
         public bool Success { get; set; } = true;
     }
+
+    /// <summary>
+    /// heartbeat request
+    /// </summary>
+    [MessagePackObject]
+    public class HeartbeatyRequest
+    {
+    }
+
+    /// <summary>
+    /// heartbeat response
+    /// </summary>
+    [MessagePackObject]
+    public class HeartbeatResponse
+    {
+        // Empty class - just needs to exist for proper serialization
+    }
 }

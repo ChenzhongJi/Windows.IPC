@@ -23,8 +23,8 @@ namespace SimpleClient
                     ConnectionTimeoutMs = 5000
                 },
                 ReconnectionPolicy = ReconnectionPolicy.Default,
-                DefaultRequestTimeoutMs = 10000,
-                HeartbeatIntervalMs = 0
+                DefaultRequestTimeoutMs = 5000,
+                HeartbeatIntervalMs = 10000
             };
 
             using var client = new IpcClient(options, logger);

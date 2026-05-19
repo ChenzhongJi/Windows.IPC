@@ -1,6 +1,7 @@
 ﻿using MessagePack;
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using System.Text;
 using Windows.IPC.Abstractions;
 
@@ -13,22 +14,16 @@ namespace Windows.IPC.Serialization
     {
         private static readonly MessagePackSerializerOptions Options =
             MessagePackSerializerOptions.Standard
-                .WithCompression(MessagePackCompression.Lz4BlockArray);
+                .WithCompression(MessagePackCompression.Lz4BlockArray)
+                .WithSecurity(MessagePackSecurity.UntrustedData);
 
         /// <summary>
         /// 序列化对象
         /// </summary>
         public static byte[] Serialize<T>(T obj)
         {
+            if (obj == null) throw new ArgumentNullException(nameof(obj));
             return MessagePackSerializer.Serialize(obj, Options);
-        }
-
-        /// <summary>
-        /// 反序列化对象
-        /// </summary>
-        public static T Deserialize<T>(byte[] bytes)
-        {
-            return MessagePackSerializer.Deserialize<T>(bytes, Options);
         }
 
         /// <summary>
@@ -36,7 +31,15 @@ namespace Windows.IPC.Serialization
         /// </summary>
         public static T Deserialize<T>(ReadOnlyMemory<byte> bytes)
         {
-            return MessagePackSerializer.Deserialize<T>(bytes, Options);
+            if (bytes.IsEmpty) throw new ArgumentException("Empty data", nameof(bytes));
+            try
+            {
+                return MessagePackSerializer.Deserialize<T>(bytes, Options);
+            }
+            catch (MessagePackSerializationException ex)
+            {
+                throw new SerializationException($"Failed to deserialize {typeof(T).Name}", ex);
+            }
         }
     }
 }

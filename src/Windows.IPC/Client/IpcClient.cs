@@ -4,6 +4,7 @@ using System.IO.Pipes;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
+using Windows.IPC.Contracts.Messages;
 using Windows.IPC.Exceptions;
 using Windows.IPC.Protocol;
 using Windows.IPC.Serialization;
@@ -427,10 +428,10 @@ namespace Windows.IPC.Client
             try
             {
                 // 发送心跳请求并等待响应，验证连接仍然活跃
-                await SendRequestAsync<object, object>(
-                    new object(), // 空载荷
+                var heartbeatResponse = await SendRequestAsync<HeartbeatyRequest, HeartbeatResponse>(
+                    new HeartbeatyRequest(),
                     "Heartbeat",
-                    5000, // 5秒超时
+                    _options.HeartbeatTimeoutMs,
                     CancellationToken.None).ConfigureAwait(false);
 
                 _logger?.LogTrace("Heartbeat received response at {Time}", DateTime.Now);

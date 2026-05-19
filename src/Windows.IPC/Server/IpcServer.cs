@@ -10,6 +10,7 @@ using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
+using Windows.IPC.Contracts.Messages;
 using Windows.IPC.Exceptions;
 using Windows.IPC.Serialization;
 using Windows.IPC.Transport;
@@ -738,17 +739,17 @@ namespace Windows.IPC.Server
     /// <summary>
     /// 默认的心跳处理器
     /// </summary>
-    internal class HeartbeatHandler : MessageHandler<object, object>
+    internal class HeartbeatHandler : MessageHandler<HeartbeatyRequest, HeartbeatResponse>
     {
         public override string MessageType => "Heartbeat";
 
-        protected override Task<object> HandleAsync(
-            object request,
+        protected override Task<HeartbeatResponse> HandleAsync(
+            HeartbeatyRequest request,
             ConnectedClient client,
             CancellationToken cancellationToken)
         {
             // 心跳不需要响应数据
-            return Task.FromResult(new object());
+            return Task.FromResult(new HeartbeatResponse());
         }
     }
 }
