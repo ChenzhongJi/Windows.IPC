@@ -1,11 +1,8 @@
-﻿using MessagePack;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
@@ -241,31 +238,32 @@ namespace Windows.IPC.Transport
 
         /// <summary>
         /// 接收缓冲区（处理粘包问题）
+        /// 使用 MemoryStream 替代 List<byte> 以获得更好的批量写入性能
         /// </summary>
         private class ReceiveBuffer : IDisposable
         {
-            private readonly List<byte> _buffer = new List<byte>(16384);
+            private readonly MemoryStream _stream = new MemoryStream(16384);
 
             public void Append(byte[] data, int offset, int count)
             {
-                for (int i = 0; i < count; i++)
-                {
-                    _buffer.Add(data[offset + i]);
-                }
+                // MemoryStream.Write 在内部使用 Buffer.BlockCopy 批量拷贝，
+                // 远比 List<byte>.Add 的逐字节追加高效
+                _stream.Write(data, offset, count);
             }
 
-            public void Clear() { _buffer.Clear(); }
+            public void Clear() { _stream.SetLength(0); }
 
             public bool TryDecodeMessage(out IMessage? message)
             {
                 message = null;
 
-                if (_buffer.Count == 0)
+                if (_stream.Length == 0)
                 {
                     return false;
                 }
 
-                var bufferArray = _buffer.ToArray();
+                // 仅在缓冲区有足够数据时才获取数组，避免不必要的拷贝
+                var bufferArray = _stream.ToArray();
 
                 if (!MessageFrame.TryDecode(bufferArray, out var frameType, out var payload, out var consumed))
                 {
@@ -273,23 +271,35 @@ namespace Windows.IPC.Transport
                 }
 
                 // 反序列化消息
-                var payloadBytes = payload.ToArray();
+                // payload 已经是独立的 byte[]（由 TryDecode 中的 .ToArray() 创建），
+                // 无需再次拷贝
 
                 message = frameType switch
                 {
-                    MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payloadBytes),
-                    MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payloadBytes),
-                    MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(payloadBytes),
+                    MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payload),
+                    MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payload),
+                    MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(payload),
                     _ => throw new ProtocolException($"Unknown frame type: {frameType}")
                 };
 
                 // 移除已消费的数据
-                _buffer.RemoveRange(0, consumed);
+                if (consumed >= bufferArray.Length)
+                {
+                    // 全部消费完，重置流
+                    _stream.SetLength(0);
+                }
+                else
+                {
+                    // 部分消费：保留未消费的数据
+                    var remaining = bufferArray.Length - consumed;
+                    _stream.SetLength(0);
+                    _stream.Write(bufferArray, consumed, remaining);
+                }
 
                 return true;
             }
 
-            public void Dispose() { _buffer.Clear(); }
+            public void Dispose() { _stream.Dispose(); }
         }
     }
 }
