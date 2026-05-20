@@ -27,6 +27,7 @@ namespace Windows.IPC.Client
         private Task? _receiveLoopTask;
         private CancellationTokenSource? _receiveCts;
         private Timer? _heartbeatTimer;
+        private int _heartbeatInProgress = 0; // 用于防止心跳定时器重入
 
         private ConnectionState _state = ConnectionState.Disconnected;
         private bool _disposed;
@@ -397,10 +398,10 @@ namespace Windows.IPC.Client
             }
 
             _heartbeatTimer = new Timer(
-                async _ => await SendHeartbeatAsync(),
+                OnHeartbeatTimerCallback,
                 null,
                 TimeSpan.FromMilliseconds(_options.HeartbeatIntervalMs),
-                TimeSpan.FromMilliseconds(_options.HeartbeatIntervalMs));
+                Timeout.InfiniteTimeSpan);
 
             _logger?.LogDebug("Heartbeat started with interval {IntervalMs}ms", _options.HeartbeatIntervalMs);
         }
@@ -413,6 +414,46 @@ namespace Windows.IPC.Client
             _heartbeatTimer?.Dispose();
             _heartbeatTimer = null;
             _logger?.LogDebug("Heartbeat stopped");
+        }
+
+        /// <summary>
+        /// 心跳定时器回调
+        /// 使用 Interlocked 防止重入：如果上一次心跳尚未完成，跳过本次触发
+        /// </summary>
+        private void OnHeartbeatTimerCallback(object? state)
+        {
+            // 防止重入：如果前一次心跳还在执行，跳过本次
+            if (Interlocked.CompareExchange(ref _heartbeatInProgress, 1, 0) != 0)
+            {
+                _logger?.LogTrace("Heartbeat skipped: previous heartbeat still in progress");
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await SendHeartbeatAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    // 标记心跳完成
+                    Interlocked.Exchange(ref _heartbeatInProgress, 0);
+
+                    // 无论成功或失败，重新调度下一次心跳
+                    // 这样心跳间隔是从上一次完成后开始计算，避免重入堆积
+                    try
+                    {
+                        _heartbeatTimer?.Change(
+                            TimeSpan.FromMilliseconds(_options.HeartbeatIntervalMs),
+                            Timeout.InfiniteTimeSpan);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // 定时器已释放，忽略
+                    }
+                }
+            });
         }
 
         /// <summary>
