@@ -206,7 +206,6 @@ namespace Windows.IPC.Server
                         {
                             // ⭐ 关键：使用 Global\ 前缀使管道跨 Session 可见
                             PipeName = $"Global\\{pipeName}",
-                            MaxServerInstances = _baseOptions.PipeOptions.MaxServerInstances,
                             BufferSize = _baseOptions.PipeOptions.BufferSize,
                             SecurityDescriptor = _baseOptions.PipeOptions.SecurityDescriptor
                         },

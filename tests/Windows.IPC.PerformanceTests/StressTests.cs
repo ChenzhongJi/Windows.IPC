@@ -29,7 +29,7 @@ namespace Windows.IPC.PerformanceTests
         [InlineData(100)]
         public async Task MultipleClients_ConcurrentConnections(int clientCount)
         {
-            await InitializeAsync(clientCount + 1, clientCount + 1);
+            await InitializeAsync(clientCount + 1);
 
             var clients = new List<IpcClient>();
             var connectTasks = new List<Task>();

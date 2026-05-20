@@ -32,6 +32,7 @@ namespace Windows.IPC.Server
         private bool _isRunning;
         private bool _disposed;
         private int _disposeState = 0;  // 0 = 未释放, 1 = 正在释放, 2 = 已释放
+        private int _listenerCount;  // 当前监听器数量，用于计算 maxNumberOfServerInstances
         private readonly object _lock = new object();
 
         public bool IsRunning
@@ -131,17 +132,18 @@ namespace Windows.IPC.Server
             _serverCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             IsRunning = true;
 
-            // 启动少量监听器（通常 2-3 个足够）
-            // 每个监听器会循环创建管道实例
-            int listenerCount = Math.Min(Math.Max(2, _options.MaxConcurrentClients / 4), 4);
+            // 启动足够多的监听器以应对并发连接
+            // 每个监听器维护一个等待中的管道实例，监听器数量决定了同一时刻能同时接受的连接数
+            // 对于高并发场景（50-100 客户端同时连接），需要足够的等待管道实例
+            _listenerCount = Math.Min(Math.Max(8, _options.MaxConcurrentClients), 64);
 
-            for (int i = 0; i < listenerCount; i++)
+            for (int i = 0; i < _listenerCount; i++)
             {
                 var listenerTask = Task.Run(() => ListenerLoopAsync(i, _serverCts.Token), _serverCts.Token);
                 _listenerTasks.Add(listenerTask);
             }
 
-            _logger?.LogInformation("IPC server started with {Count} listener(s)", listenerCount);
+            _logger?.LogInformation("IPC server started with {Count} listener(s)", _listenerCount);
 
             return Task.CompletedTask;
         }
@@ -331,44 +333,12 @@ namespace Windows.IPC.Server
 
                     _logger?.LogDebug("Listener {ListenerId} accepted connection", listenerId);
 
-                    // ⭐ 新增：客户端鉴权
-                    if (_options.ClientAuthenticator != null)
-                    {
-                        var authResult = await AuthenticateClientAsync(pipeServer, cancellationToken)
-                            .ConfigureAwait(false);
-
-                        if (!authResult.IsAuthenticated)
-                        {
-                            _logger?.LogWarning("Client authentication failed: {Reason}. Rejecting connection.",
-                                authResult.RejectReason);
-
-                            // 拒绝连接
-                            pipeServer.Dispose();
-                            pipeServer = null;
-                            continue;  // 继续监听下一个连接
-                        }
-
-                        _logger?.LogInformation("Client authenticated successfully");
-                    }
-
-                    // 创建连接对象
-                    var connection = new NamedPipeConnection(pipeServer, _logger);
-                    var client = new ConnectedClient(connection);
-
-                    // 添加到客户端管理器
-                    if (_clientManager.AddClient(client))
-                    {
-                        // 异步处理客户端（不等待）
-                        _ = HandleClientAsync(client, cancellationToken);
-
-                        // pipeServer 现在由 connection 管理，不要释放
-                        pipeServer = null;
-                    }
-                    else
-                    {
-                        _logger?.LogWarning("Failed to add client {ClientId}", client.ClientId);
-                        client.Dispose();
-                    }
+                    // 将已接受的管道转交后台任务处理（鉴权 + 连接设置 + 消息处理），
+                    // 监听器自身立即回到循环顶部创建下一个等待实例，
+                    // 这样监听器不会因为连接设置工作而阻塞，最大化并发接受吞吐量。
+                    var acceptedPipe = pipeServer;
+                    pipeServer = null; // 防止 catch 块中误释放
+                    _ = SetupAndHandleConnectionAsync(acceptedPipe, cancellationToken);
 
                     // 立即继续循环，创建新的管道实例等待下一个连接
                 }
@@ -403,6 +373,59 @@ namespace Windows.IPC.Server
             }
 
             _logger?.LogDebug("Listener {ListenerId} stopped", listenerId);
+        }
+
+        /// <summary>
+        /// 设置已接受的连接并开始处理客户端消息
+        /// 从监听器循环中剥离出来，避免阻塞监听器继续接受下一个连接
+        /// </summary>
+        private async Task SetupAndHandleConnectionAsync(NamedPipeServerStream pipeServer, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // 客户端鉴权
+                if (_options.ClientAuthenticator != null)
+                {
+                    var authResult = await AuthenticateClientAsync(pipeServer, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (!authResult.IsAuthenticated)
+                    {
+                        _logger?.LogWarning("Client authentication failed: {Reason}. Rejecting connection.",
+                            authResult.RejectReason);
+
+                        pipeServer.Dispose();
+                        return;
+                    }
+
+                    _logger?.LogInformation("Client authenticated successfully");
+                }
+
+                // 创建连接对象
+                var connection = new NamedPipeConnection(pipeServer, _logger);
+                var client = new ConnectedClient(connection);
+
+                // 添加到客户端管理器
+                if (_clientManager.AddClient(client))
+                {
+                    // pipeServer 现在由 connection 管理，不要释放
+                    await HandleClientAsync(client, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    _logger?.LogWarning("Failed to add client {ClientId}", client.ClientId);
+                    client.Dispose();
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                pipeServer?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error setting up accepted connection");
+                pipeServer?.Dispose();
+            }
         }
 
         /// <summary>
@@ -470,6 +493,7 @@ namespace Windows.IPC.Server
                 sddl = PipeSecurityHelper.GetSddlForMode(_options.SecurityMode);
             }
 
+            var effectiveMaxInstances = _options.MaxConcurrentClients;
             // 如果有 SDDL，使用原生 API 创建
             if (!string.IsNullOrEmpty(sddl))
             {
@@ -477,9 +501,12 @@ namespace Windows.IPC.Server
                 {
                     _logger?.LogDebug("Creating pipe with SDDL security: {Mode}", _options.SecurityMode);
 
+                    // SDDL 路径同样需要容纳活跃连接 + 等待实例
+                    effectiveMaxInstances = Math.Min(_options.MaxConcurrentClients + _listenerCount, 254);
+
                     var pipeServer = NativePipe.CreateWithSddl(
                         _options.PipeOptions.PipeName,
-                        _options.PipeOptions.MaxServerInstances,
+                        effectiveMaxInstances,
                         _options.PipeOptions.BufferSize,
                         sddl!);
 
@@ -495,10 +522,15 @@ namespace Windows.IPC.Server
             // 降级方案：使用默认安全设置
             _logger?.LogInformation("Creating pipe with default security settings");
 
+            // maxNumberOfServerInstances 必须容纳：活跃连接数 + 等待中的管道实例数（监听器数量）
+            // 例如 MaxConcurrentClients=101，监听器=64 时，需要 101+64=165 个实例
+            // Windows 命名管道最大支持 254 个实例
+            effectiveMaxInstances = Math.Min(_options.MaxConcurrentClients + _listenerCount, 254);
+
             var defaultPipeServer = new NamedPipeServerStream(
                 pipeName: _options.PipeOptions.PipeName,
                 direction: PipeDirection.InOut,
-                maxNumberOfServerInstances: _options.MaxConcurrentClients,
+                maxNumberOfServerInstances: effectiveMaxInstances,
                 transmissionMode: PipeTransmissionMode.Byte,
                 options: System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.WriteThrough,
                 inBufferSize: _options.PipeOptions.BufferSize,

@@ -9,29 +9,10 @@ namespace Windows.IPC.Transport
     /// </summary>
     public class IpcPipeOptions
     {
-        private int _maxServerInstances = 10;
-
         /// <summary>
         /// 管道名称
         /// </summary>
         public string PipeName { get; set; } = string.Empty;
-
-        /// <summary>
-        /// 服务器模式下的最大连接数
-        /// </summary>
-        public int MaxServerInstances
-        {
-            get => _maxServerInstances;
-            set
-            {
-                if (value < 1 || value > 254)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value),
-                        $"MaxServerInstances must be between 1 and 255. Value: {value}");
-                }
-                _maxServerInstances = value;
-            }
-        }
 
         /// <summary>
         /// 连接超时（毫秒）

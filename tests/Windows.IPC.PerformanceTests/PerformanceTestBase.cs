@@ -33,7 +33,7 @@ namespace Windows.IPC.PerformanceTests
         /// <summary>
         /// 初始化测试环境
         /// </summary>
-        protected async Task InitializeAsync(int maxServerInstances = 1, int maxConcurrentClients = 1, bool enableLogging = false)
+        protected async Task InitializeAsync(int maxConcurrentClients = 1, bool enableLogging = false)
         {
             if (enableLogging)
             {
@@ -47,7 +47,6 @@ namespace Windows.IPC.PerformanceTests
                     new IpcPipeOptions
                     {
                         PipeName = TestPipeName + "_" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                        MaxServerInstances = maxServerInstances,
                         BufferSize = 65536
                     },
                 MaxConcurrentClients = maxConcurrentClients,

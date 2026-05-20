@@ -73,8 +73,7 @@ namespace SimpleServer
             {
                 PipeOptions = new Windows.IPC.Transport.IpcPipeOptions
                 {
-                    PipeName = "YourAppPipe",
-                    MaxServerInstances = 10
+                    PipeName = "YourAppPipe"
                 },
                 MaxConcurrentClients = 10,
                 AutoHandleHeartbeat = true,
