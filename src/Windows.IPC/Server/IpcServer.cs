@@ -28,6 +28,7 @@ namespace Windows.IPC.Server
         private readonly MessageDispatcher _dispatcher;
 
         private readonly ConcurrentBag<Task> _listenerTasks = new ConcurrentBag<Task>();
+        private readonly ConcurrentDictionary<string, Task> _requestTasks = new ConcurrentDictionary<string, Task>();
         private CancellationTokenSource? _serverCts;
         private bool _isRunning;
         private bool _disposed;
@@ -201,6 +202,23 @@ namespace Windows.IPC.Server
 
             // 断开所有客户端
             var reason = isDisposing ? "Server disposing" : "Server stopping";
+
+            // 等待正在处理的请求任务完成（最多等待5秒，避免无限期阻塞）
+            if (!_requestTasks.IsEmpty)
+            {
+                _logger?.LogInformation("Waiting for {Count} in-flight request(s) to complete...", _requestTasks.Count);
+                try
+                {
+                    var allTasks = _requestTasks.Values.ToArray();
+                    await Task.WhenAny(Task.WhenAll(allTasks), Task.Delay(5000)).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Error waiting for request tasks to complete");
+                }
+                _requestTasks.Clear();
+            }
+
             _clientManager?.DisconnectAll(reason);
 
             _serverCts?.Dispose();
@@ -615,7 +633,8 @@ namespace Windows.IPC.Server
                     // 处理不同类型的消息
                     if (message is RequestMessage request)
                     {
-                        _ = Task.Run(async () =>
+                        // 启动请求处理任务并跟踪，确保服务器关闭时能等待正在处理的请求完成
+                        var requestTask = Task.Run(async () =>
                         {
                             try
                             {
@@ -646,8 +665,6 @@ namespace Windows.IPC.Server
                                 _logger?.LogError(ex, "Error processing request from client {ClientId}", client.ClientId);
 
                                 // 确保客户端总能收到响应，避免客户端永久等待超时
-                                // 原来的实现在异常时只记录日志，客户端收不到任何响应，
-                                // 导致 pending request 只能等到超时才能释放
                                 try
                                 {
                                     var errorResponse = new ResponseMessage
@@ -667,6 +684,13 @@ namespace Windows.IPC.Server
                                 }
                             }
                         }, cancellationToken);
+
+                        // 跟踪请求处理任务，完成后自动移除
+                        _requestTasks[request.MessageId] = requestTask;
+                        _ = requestTask.ContinueWith(t =>
+                        {
+                            _requestTasks.TryRemove(request.MessageId, out _);
+                        }, TaskContinuationOptions.ExecuteSynchronously);
                     }
                     else if (message is NotificationMessage notification)
                     {
