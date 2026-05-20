@@ -5,8 +5,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
@@ -191,14 +189,8 @@ namespace Windows.IPC.Server
                 }
             }
 
-            // 清空 ConcurrentBag 通过不断移除元素
-            while (!_listenerTasks.IsEmpty)
-            {
-                if (_listenerTasks.TryTake(out var _))
-                {
-                    // 成功移除一个元素
-                }
-            }
+            // 清空监听器任务列表
+            while (_listenerTasks.TryTake(out _)) { }
 
             // 断开所有客户端
             var reason = isDisposing ? "Server disposing" : "Server stopping";
@@ -555,60 +547,6 @@ namespace Windows.IPC.Server
                 outBufferSize: _options.PipeOptions.BufferSize);
 
             return defaultPipeServer;
-        }
-
-        /// <summary>
-        /// 创建管道安全描述符
-        /// </summary>
-        private PipeSecurity CreatePipeSecurity()
-        {
-            var pipeSecurity = new PipeSecurity();
-
-            try
-            {
-                // 方法1: 使用 SecurityIdentifier
-
-                // Everyone - 读写权限
-                var everyoneSid = new SecurityIdentifier(WellKnownSidType.WorldSid, null);
-                pipeSecurity.AddAccessRule(new PipeAccessRule(
-                    everyoneSid,
-                    PipeAccessRights.ReadWrite,
-                    AccessControlType.Allow));
-
-                // SYSTEM - 完全控制
-                var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
-                pipeSecurity.AddAccessRule(new PipeAccessRule(
-                    systemSid,
-                    PipeAccessRights.FullControl,
-                    AccessControlType.Allow));
-
-                // Administrators - 完全控制
-                var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
-                pipeSecurity.AddAccessRule(new PipeAccessRule(
-                    adminsSid,
-                    PipeAccessRights.FullControl,
-                    AccessControlType.Allow));
-
-                // 当前用户 - 完全控制
-                var currentUser = WindowsIdentity.GetCurrent();
-                if (currentUser?.User != null)
-                {
-                    pipeSecurity.AddAccessRule(new PipeAccessRule(
-                        currentUser.User,
-                        PipeAccessRights.FullControl,
-                        AccessControlType.Allow));
-                }
-
-                _logger?.LogDebug("PipeSecurity created successfully");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Failed to create detailed PipeSecurity, using default");
-                // 如果失败，返回 null 使用默认安全设置
-                return null;
-            }
-
-            return pipeSecurity;
         }
 
         /// <summary>

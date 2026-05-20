@@ -20,19 +20,9 @@ namespace Windows.IPC.Transport
         public int ConnectionTimeoutMs { get; set; } = 5000;
 
         /// <summary>
-        /// 读写超时（毫秒）
-        /// </summary>
-        public int ReadWriteTimeoutMs { get; set; } = 30000;
-
-        /// <summary>
         /// 缓冲区大小
         /// </summary>
         public int BufferSize { get; set; } = 8192;
-
-        /// <summary>
-        /// 是否使用异步IO
-        /// </summary>
-        public bool UseAsync { get; set; } = true;
 
         /// <summary>
         /// 安全描述符（SDDL格式）
