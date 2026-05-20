@@ -8,23 +8,30 @@ using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
 using Windows.IPC.Exceptions;
 using Windows.IPC.Protocol;
+using Windows.IPC.Security;
 using Windows.IPC.Serialization;
 
 namespace Windows.IPC.Transport
 {
     /// <summary>
     /// 命名管道连接
+    /// 支持安全特性：帧完整性校验（HMAC）、重放防护（序列号）、
+    /// 以及通过流包装实现的传输加密（NegotiateStream / AES-CBC-HMAC）
     /// </summary>
     public class NamedPipeConnection : IConnection
     {
-        private readonly PipeStream _pipeStream;
+        private readonly Stream _stream;              // 可能是 PipeStream 或加密流
+        private readonly PipeStream? _pipeStream;     // 原始管道流（用于 IsConnected 检查）
         private readonly ILogger? _logger;
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
         private readonly SemaphoreSlim _receiveLock = new SemaphoreSlim(1, 1);
-        private readonly ReceiveBuffer _receiveBuffer = new ReceiveBuffer();
+        private readonly ReceiveBuffer _receiveBuffer;
+        private readonly FrameSecurity? _frameSecurity; // 帧安全处理器（v2 帧格式）
+        private readonly bool _useV2FrameFormat;         // 是否使用 v2 帧格式
         private ConnectionState _state = ConnectionState.Connected;
         private bool _disposed;
         private readonly object _stateLock = new object();
+
         public string ConnectionId { get; }
 
         public ConnectionState State
@@ -45,25 +52,58 @@ namespace Windows.IPC.Transport
                         var oldState = _state;
                         _state = value;
                         StateChanged?.Invoke(
-                        this,
-                        new ConnectionStateChangedEventArgs { OldState = oldState, NewState = value });
+                            this,
+                            new ConnectionStateChangedEventArgs { OldState = oldState, NewState = value });
                     }
                 }
             }
-
         }
 
-        public bool IsConnected => _pipeStream?.IsConnected == true && State == ConnectionState.Connected;
+        public bool IsConnected
+        {
+            get
+            {
+                var pipeConnected = _pipeStream?.IsConnected ?? (State == ConnectionState.Connected);
+                return pipeConnected && State == ConnectionState.Connected;
+            }
+        }
 
         public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
 
+        /// <summary>
+        /// 创建命名管道连接（向后兼容，无安全特性）
+        /// </summary>
         public NamedPipeConnection(PipeStream pipeStream, ILogger? logger = null)
+            : this(pipeStream, pipeStream, null, false, logger)
         {
-            _pipeStream = pipeStream ?? throw new ArgumentNullException(nameof(pipeStream));
+        }
+
+        /// <summary>
+        /// 创建命名管道连接（支持安全特性）
+        /// </summary>
+        /// <param name="stream">读写流（可能是加密流包装）</param>
+        /// <param name="pipeStream">原始管道流（用于 IsConnected 检查，可为 null）</param>
+        /// <param name="frameSecurity">帧安全处理器（null 表示 v1 帧格式）</param>
+        /// <param name="useV2FrameFormat">是否使用 v2 帧格式</param>
+        /// <param name="logger">日志</param>
+        public NamedPipeConnection(
+            Stream stream,
+            PipeStream? pipeStream,
+            FrameSecurity? frameSecurity,
+            bool useV2FrameFormat,
+            ILogger? logger = null)
+        {
+            _stream = stream ?? throw new ArgumentNullException(nameof(stream));
+            _pipeStream = pipeStream;
             _logger = logger;
+            _frameSecurity = frameSecurity;
+            _useV2FrameFormat = useV2FrameFormat;
+            _receiveBuffer = new ReceiveBuffer(frameSecurity);
             ConnectionId = Guid.NewGuid().ToString("N");
 
-            _logger?.LogDebug("Connection {ConnectionId} created", ConnectionId);
+            _logger?.LogDebug(
+                "Connection {ConnectionId} created (V2Frame={UseV2}, FrameSecurity={HasFrameSec})",
+                ConnectionId, _useV2FrameFormat, _frameSecurity != null);
         }
 
         /// <summary>
@@ -105,18 +145,32 @@ namespace Windows.IPC.Transport
                     throw new ArgumentException($"Unknown message type: {message.GetType()}");
                 }
 
-                // 编码帧
-                var frameBytes = MessageFrame.Encode(frameType, messageBytes);
+                // 编码帧（根据协议版本选择帧格式）
+                byte[] frameBytes;
+                if (_useV2FrameFormat && _frameSecurity != null)
+                {
+                    frameBytes = _frameSecurity.EncodeSecureFrame(frameType, messageBytes);
+                }
+                else
+                {
+                    frameBytes = MessageFrame.Encode(frameType, messageBytes);
+                }
 
                 // 发送
-                await _pipeStream.WriteAsync(frameBytes, 0, frameBytes.Length, cancellationToken).ConfigureAwait(false);
-                //await _pipeStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                // 当使用加密流时，需要 Flush 以确保加密帧完整发送
+                if (_pipeStream != null && ReferenceEquals(_stream, _pipeStream))
+                {
+                    await _pipeStream.WriteAsync(frameBytes, 0, frameBytes.Length, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await _stream.WriteAsync(frameBytes, 0, frameBytes.Length, cancellationToken).ConfigureAwait(false);
+                    await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                }
 
                 _logger?.LogTrace(
-                "Sent {FrameType} message {MessageId}, {Size} bytes",
-                frameType,
-                message.MessageId,
-                frameBytes.Length);
+                    "Sent {FrameType} message {MessageId}, {Size} bytes",
+                    frameType, message.MessageId, frameBytes.Length);
             }
             catch (IOException ex)
             {
@@ -151,26 +205,14 @@ namespace Windows.IPC.Transport
                             return message;
                         }
 
-                        // 可选：在读取前检查连接状态，避免不必要的异常
-                        if (!_pipeStream.IsConnected)
+                        // 在读取前检查连接状态
+                        if (_pipeStream != null && !_pipeStream.IsConnected)
                         {
                             State = ConnectionState.Disconnected;
                             return null;
                         }
 
-                        // 使用 Task.WhenAny 来确保取消令牌能够及时响应
-                        var readTask = _pipeStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken);
-                        var cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
-
-                        var completedTask = await Task.WhenAny(readTask, cancelTask).ConfigureAwait(false);
-
-                        if (completedTask == cancelTask)
-                        {
-                            // 取消令牌被触发，这将引发 OperationCanceledException
-                            await cancelTask;
-                        }
-
-                        int bytesRead = await readTask.ConfigureAwait(false);
+                        int bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
 
                         if (bytesRead == 0)
                         {
@@ -191,7 +233,6 @@ namespace Windows.IPC.Transport
             }
             catch (OperationCanceledException)
             {
-                // 取消不算故障，直接抛出让调用方处理
                 throw;
             }
             catch (IOException ex)
@@ -220,7 +261,8 @@ namespace Windows.IPC.Transport
             _disposed = true;
             State = ConnectionState.Disconnected;
 
-            _pipeStream?.Dispose();
+            // 注意：不释放 _pipeStream 和 _stream，它们由外部管理（IpcServer/IpcClient）
+            _frameSecurity?.Dispose();
             _sendLock?.Dispose();
             _receiveLock?.Dispose();
             _receiveBuffer?.Dispose();
@@ -238,68 +280,91 @@ namespace Windows.IPC.Transport
 
         /// <summary>
         /// 接收缓冲区（处理粘包问题）
-        /// 使用 MemoryStream 替代 List<byte> 以获得更好的批量写入性能
+        /// 支持 v1 和 v2 帧格式的自动检测和解码
         /// </summary>
         private class ReceiveBuffer : IDisposable
         {
-            private readonly MemoryStream _stream = new MemoryStream(16384);
+            private readonly MemoryStream _buffer = new MemoryStream(16384);
+            private readonly FrameSecurity? _frameSecurity;
+
+            public ReceiveBuffer(FrameSecurity? frameSecurity)
+            {
+                _frameSecurity = frameSecurity;
+            }
 
             public void Append(byte[] data, int offset, int count)
             {
-                // MemoryStream.Write 在内部使用 Buffer.BlockCopy 批量拷贝，
-                // 远比 List<byte>.Add 的逐字节追加高效
-                _stream.Write(data, offset, count);
+                _buffer.Write(data, offset, count);
             }
 
-            public void Clear() { _stream.SetLength(0); }
+            public void Clear() { _buffer.SetLength(0); }
 
             public bool TryDecodeMessage(out IMessage? message)
             {
                 message = null;
 
-                if (_stream.Length == 0)
+                if (_buffer.Length == 0)
                 {
                     return false;
                 }
 
-                // 仅在缓冲区有足够数据时才获取数组，避免不必要的拷贝
-                var bufferArray = _stream.ToArray();
+                var bufferArray = _buffer.ToArray();
 
-                if (!MessageFrame.TryDecode(bufferArray, out var frameType, out var payload, out var consumed))
+                // 检测帧格式版本（v1 或 v2）
+                bool isV2 = bufferArray.Length >= 4 && FrameSecurity.IsV2Frame(bufferArray);
+
+                int consumed;
+                if (isV2 && _frameSecurity != null)
                 {
-                    return false;
+                    // v2 帧格式：带序列号和 HMAC
+                    if (!_frameSecurity.TryDecodeSecureFrame(bufferArray, out var frameType, out var payload, out var sequenceId, out consumed))
+                    {
+                        return false;
+                    }
+
+                    // 反序列化消息
+                    message = frameType switch
+                    {
+                        MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payload),
+                        MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payload),
+                        MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(payload),
+                        _ => throw new ProtocolException($"Unknown frame type: {frameType}")
+                    };
                 }
-
-                // 反序列化消息
-                // payload 已经是独立的 byte[]（由 TryDecode 中的 .ToArray() 创建），
-                // 无需再次拷贝
-
-                message = frameType switch
+                else
                 {
-                    MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payload),
-                    MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payload),
-                    MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(payload),
-                    _ => throw new ProtocolException($"Unknown frame type: {frameType}")
-                };
+                    // v1 帧格式：原始格式
+                    if (!MessageFrame.TryDecode(bufferArray, out var frameType, out var payload, out consumed))
+                    {
+                        return false;
+                    }
+
+                    // 反序列化消息
+                    message = frameType switch
+                    {
+                        MessageFrame.FrameType.Request => MessageSerializer.Deserialize<RequestMessage>(payload),
+                        MessageFrame.FrameType.Response => MessageSerializer.Deserialize<ResponseMessage>(payload),
+                        MessageFrame.FrameType.Notification => MessageSerializer.Deserialize<NotificationMessage>(payload),
+                        _ => throw new ProtocolException($"Unknown frame type: {frameType}")
+                    };
+                }
 
                 // 移除已消费的数据
                 if (consumed >= bufferArray.Length)
                 {
-                    // 全部消费完，重置流
-                    _stream.SetLength(0);
+                    _buffer.SetLength(0);
                 }
                 else
                 {
-                    // 部分消费：保留未消费的数据
                     var remaining = bufferArray.Length - consumed;
-                    _stream.SetLength(0);
-                    _stream.Write(bufferArray, consumed, remaining);
+                    _buffer.SetLength(0);
+                    _buffer.Write(bufferArray, consumed, remaining);
                 }
 
                 return true;
             }
 
-            public void Dispose() { _stream.Dispose(); }
+            public void Dispose() { _buffer.Dispose(); }
         }
     }
 }

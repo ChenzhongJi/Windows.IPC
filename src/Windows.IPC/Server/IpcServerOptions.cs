@@ -1,4 +1,5 @@
 ﻿using System;
+using Windows.IPC.Security;
 using Windows.IPC.Transport;
 
 namespace Windows.IPC.Server
@@ -51,5 +52,22 @@ namespace Windows.IPC.Server
         /// 鉴权失败时是否记录详细信息
         /// </summary>
         public bool LogAuthenticationFailures { get; set; } = true;
+
+        /// <summary>
+        /// 安全选项快捷访问
+        /// 等同于 PipeOptions.SecurityOptions
+        /// </summary>
+        public SecurityOptions SecurityOptions
+        {
+            get => PipeOptions.SecurityOptions;
+            set => PipeOptions.SecurityOptions = value;
+        }
+
+        /// <summary>
+        /// 应用层认证协议（用于 SharedSecret 等挑战-响应认证）
+        /// 仅在 SecurityOptions.EnableAuthentication 为 true 时使用
+        /// 如果未设置且需要认证，将自动从 SharedSecret 创建 SharedSecretAuthProtocol
+        /// </summary>
+        public IAuthenticationProtocol? AuthenticationProtocol { get; set; }
     }
 }

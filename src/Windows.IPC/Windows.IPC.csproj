@@ -9,11 +9,16 @@
 	  <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
+	<ItemGroup>
+		<InternalsVisibleTo Include="Windows.IPC.Tests" />
+	</ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="MessagePack" Version="3.1.4" />
 	<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="2.1.1" />
 	<PackageReference Include="System.IO.Pipelines" Version="4.5.2" />
 	<PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
+	<PackageReference Include="System.Net.Security" Version="4.3.2" />
 	<PackageReference Include="System.Threading.Channels" Version="4.5.0" />
   </ItemGroup>
 

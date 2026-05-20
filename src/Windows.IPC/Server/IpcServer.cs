@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Windows.IPC.Abstractions;
 using Windows.IPC.Contracts.Messages;
 using Windows.IPC.Exceptions;
+using Windows.IPC.Security;
 using Windows.IPC.Serialization;
 using Windows.IPC.Transport;
 
@@ -391,8 +392,52 @@ namespace Windows.IPC.Server
         /// </summary>
         private async Task SetupAndHandleConnectionAsync(NamedPipeServerStream pipeServer, CancellationToken cancellationToken)
         {
+            Stream activeStream = pipeServer;
+            SecuritySession? securitySession = null;
+
             try
             {
+                // === 安全程式建立 ===
+                var secOpts = _options.PipeOptions.SecurityOptions;
+
+                // 1. 建立加密流（NegotiateStream 或 AES-CBC-HMAC）
+                if (secOpts.IsSecurityEnabled && secOpts.EncryptionMode != EncryptionMode.None)
+                {
+                    var (encryptedStream, session) = await SecureStreamFactory.CreateServerStreamAsync(
+                        pipeServer, secOpts, _logger, cancellationToken).ConfigureAwait(false);
+
+                    activeStream = encryptedStream;
+                    securitySession = session;
+
+                    _logger?.LogInformation("Secure stream established: {Session}", securitySession);
+                }
+
+                // 2. 执行握手协议（版本协商 + 能力交换）
+                if (secOpts.IsSecurityEnabled)
+                {
+                    var handshake = new HandshakeProtocol(_logger);
+                    var authProtocol = ResolveAuthProtocol(secOpts);
+                    var handshakeResult = await handshake.PerformServerHandshakeAsync(
+                        activeStream, secOpts, authProtocol, cancellationToken).ConfigureAwait(false);
+
+                    if (!handshakeResult.Succeeded)
+                    {
+                        _logger?.LogWarning("Handshake failed: {Reason}", handshakeResult.FailureReason);
+                        pipeServer.Dispose();
+                        return;
+                    }
+
+                    _logger?.LogInformation("Handshake succeeded: Version={Version}, Caps={Caps}",
+                        handshakeResult.NegotiatedVersion, handshakeResult.Capabilities);
+
+                    // 更新安全会话以反映握手结果
+                    if (securitySession == null)
+                    {
+                        securitySession = new SecuritySession(secOpts);
+                    }
+                }
+
+                // 3. 客户端鉴权（基于 Windows 进程身份）
                 // 客户端鉴权
                 if (_options.ClientAuthenticator != null)
                 {
@@ -411,8 +456,25 @@ namespace Windows.IPC.Server
                     _logger?.LogInformation("Client authenticated successfully");
                 }
 
+                // 4. 创建帧安全处理器（如果启用了 v2 帧格式）
+                FrameSecurity? frameSecurity = null;
+                bool useV2FrameFormat = false;
+                if (securitySession != null && secOpts.UseV2FrameFormat)
+                {
+                    frameSecurity = securitySession.CreateFrameSecurity();
+                    useV2FrameFormat = true;
+                }
+
                 // 创建连接对象
-                var connection = new NamedPipeConnection(pipeServer, _logger);
+                // 注意：如果使用了加密流，activeStream 是加密流；否则是 pipeServer
+                // pipeStream 参数保留用于 IsConnected 检查
+                var connection = new NamedPipeConnection(
+                    activeStream,
+                    pipeServer,
+                    frameSecurity,
+                    useV2FrameFormat,
+                    _logger);
+
                 var client = new ConnectedClient(connection);
 
                 // 添加到客户端管理器
@@ -427,6 +489,11 @@ namespace Windows.IPC.Server
                     client.Dispose();
                 }
             }
+            catch (SecurityException ex)
+            {
+                _logger?.LogError(ex, "Security error during connection setup");
+                pipeServer?.Dispose();
+            }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 pipeServer?.Dispose();
@@ -436,6 +503,37 @@ namespace Windows.IPC.Server
                 _logger?.LogError(ex, "Error setting up accepted connection");
                 pipeServer?.Dispose();
             }
+        }
+
+        /// <summary>
+        /// 解析认证协议
+        /// </summary>
+        private IAuthenticationProtocol? ResolveAuthProtocol(SecurityOptions secOpts)
+        {
+            if (!secOpts.EnableAuthentication)
+            {
+                return null;
+            }
+
+            // NegotiateStream 模式下，认证由 NegotiateStream 处理
+            if (secOpts.EncryptionMode == EncryptionMode.NegotiateStream)
+            {
+                return null;
+            }
+
+            // 优先使用用户自定义协议
+            if (_options.AuthenticationProtocol != null)
+            {
+                return _options.AuthenticationProtocol;
+            }
+
+            // 自动从 SharedSecret 创建 SharedSecretAuthProtocol
+            if (secOpts.SharedSecret != null)
+            {
+                return new SharedSecretAuthProtocol(secOpts.SharedSecret);
+            }
+
+            return null;
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using Windows.IPC.Security;
 
 namespace Windows.IPC.Transport
 {
@@ -28,6 +29,13 @@ namespace Windows.IPC.Transport
         /// 安全描述符（SDDL格式）
         /// </summary>
         public string? SecurityDescriptor { get; set; }
+
+        /// <summary>
+        /// 安全配置选项
+        /// 配置加密、认证、完整性校验和重放防护
+        /// 默认为 SecurityOptions.None（无安全功能，向后兼容）
+        /// </summary>
+        public SecurityOptions SecurityOptions { get; set; } = new SecurityOptions();
 
         /// <summary>
         /// 获取完整管道名称（包含前缀）

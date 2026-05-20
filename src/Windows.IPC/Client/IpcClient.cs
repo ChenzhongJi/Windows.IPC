@@ -7,6 +7,7 @@ using Windows.IPC.Abstractions;
 using Windows.IPC.Contracts.Messages;
 using Windows.IPC.Exceptions;
 using Windows.IPC.Protocol;
+using Windows.IPC.Security;
 using Windows.IPC.Serialization;
 using Windows.IPC.Transport;
 
@@ -114,8 +115,62 @@ namespace Windows.IPC.Client
 
                 _pipeStream.ReadMode = PipeTransmissionMode.Byte;
 
+                // === 安全程式建立 ===
+                System.IO.Stream activeStream = _pipeStream;
+                SecuritySession? securitySession = null;
+                var secOpts = _options.PipeOptions.SecurityOptions;
+
+                // 1. 建立加密流
+                if (secOpts.IsSecurityEnabled && secOpts.EncryptionMode != EncryptionMode.None)
+                {
+                    var (encryptedStream, session) = await SecureStreamFactory.CreateClientStreamAsync(
+                        _pipeStream, secOpts, _logger, cancellationToken).ConfigureAwait(false);
+
+                    activeStream = encryptedStream;
+                    securitySession = session;
+
+                    _logger?.LogInformation("Secure stream established: {Session}", securitySession);
+                }
+
+                // 2. 执行握手协议
+                if (secOpts.IsSecurityEnabled)
+                {
+                    var handshake = new HandshakeProtocol(_logger);
+                    var authProtocol = ResolveAuthProtocol(secOpts);
+                    var handshakeResult = await handshake.PerformClientHandshakeAsync(
+                        activeStream, secOpts, authProtocol, cancellationToken).ConfigureAwait(false);
+
+                    if (!handshakeResult.Succeeded)
+                    {
+                        throw new SecurityException(
+                            $"Handshake failed: {handshakeResult.FailureReason}");
+                    }
+
+                    _logger?.LogInformation("Handshake succeeded: Version={Version}, Caps={Caps}",
+                        handshakeResult.NegotiatedVersion, handshakeResult.Capabilities);
+
+                    if (securitySession == null)
+                    {
+                        securitySession = new SecuritySession(secOpts);
+                    }
+                }
+
+                // 3. 创建帧安全处理器
+                FrameSecurity? frameSecurity = null;
+                bool useV2FrameFormat = false;
+                if (securitySession != null && secOpts.UseV2FrameFormat)
+                {
+                    frameSecurity = securitySession.CreateFrameSecurity();
+                    useV2FrameFormat = true;
+                }
+
                 // 创建连接包装器
-                _connection = new NamedPipeConnection(_pipeStream, _logger);
+                _connection = new NamedPipeConnection(
+                    activeStream,
+                    _pipeStream,
+                    frameSecurity,
+                    useV2FrameFormat,
+                    _logger);
                 _connection.StateChanged += OnConnectionStateChanged;
 
                 // 启动接收循环
@@ -137,6 +192,34 @@ namespace Windows.IPC.Client
 
                 throw new ConnectionException("Failed to connect to server", ex);
             }
+        }
+
+        /// <summary>
+        /// 解析认证协议
+        /// </summary>
+        private IAuthenticationProtocol? ResolveAuthProtocol(SecurityOptions secOpts)
+        {
+            if (!secOpts.EnableAuthentication)
+            {
+                return null;
+            }
+
+            if (secOpts.EncryptionMode == EncryptionMode.NegotiateStream)
+            {
+                return null;
+            }
+
+            if (_options.AuthenticationProtocol != null)
+            {
+                return _options.AuthenticationProtocol;
+            }
+
+            if (secOpts.SharedSecret != null)
+            {
+                return new SharedSecretAuthProtocol(secOpts.SharedSecret);
+            }
+
+            return null;
         }
 
         /// <summary>

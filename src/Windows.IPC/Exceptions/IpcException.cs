@@ -64,6 +64,9 @@ namespace Windows.IPC.Exceptions
     {
         public SecurityException(string message)
             : base("SECURITY_ERROR", message) { }
+
+        public SecurityException(string message, Exception innerException)
+            : base("SECURITY_ERROR", message, innerException) { }
     }
 
     /// <summary>
