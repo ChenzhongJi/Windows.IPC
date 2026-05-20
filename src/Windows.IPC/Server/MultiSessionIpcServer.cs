@@ -244,28 +244,45 @@ namespace Windows.IPC.Server
             }
         }
 
-        private async void OnSessionCreated(object? sender, SessionEventArgs e)
+        private void OnSessionCreated(object? sender, SessionEventArgs e)
         {
             _logger?.LogInformation("Session {SessionId} created, creating IPC server...", e.Session.SessionId);
-            await CreateServerForSessionAsync(e.Session, CancellationToken.None);
-        }
 
-        private async void OnSessionTerminated(object? sender, SessionEventArgs e)
-        {
-            _logger?.LogInformation("Session {SessionId} terminated, stopping IPC server...", e.Session.SessionId);
-
-            if (_sessionServers.TryRemove(e.Session.SessionId, out var server))
+            // 使用 Task.Run 包装异步操作，避免 async void 导致未观察异常崩溃进程
+            // async void 的异常会直接抛到同步上下文导致进程崩溃，
+            // 改为 fire-and-forget Task 并在内部捕获所有异常
+            _ = Task.Run(async () =>
             {
                 try
                 {
-                    await server.StopAsync();
-                    server.Dispose();
+                    await CreateServerForSessionAsync(e.Session, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Error stopping server for session {SessionId}", e.Session.SessionId);
+                    _logger?.LogError(ex, "Failed to create server for session {SessionId}", e.Session.SessionId);
                 }
-            }
+            });
+        }
+
+        private void OnSessionTerminated(object? sender, SessionEventArgs e)
+        {
+            _logger?.LogInformation("Session {SessionId} terminated, stopping IPC server...", e.Session.SessionId);
+
+            _ = Task.Run(async () =>
+            {
+                if (_sessionServers.TryRemove(e.Session.SessionId, out var server))
+                {
+                    try
+                    {
+                        await server.StopAsync().ConfigureAwait(false);
+                        server.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Error stopping server for session {SessionId}", e.Session.SessionId);
+                    }
+                }
+            });
         }
 
         public void Dispose()
