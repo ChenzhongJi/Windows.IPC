@@ -547,9 +547,12 @@ namespace Windows.IPC.Client
                 _logger?.LogDebug("Disposing IpcClient...");
 
                 // 同步执行清理
+                // 使用 Task.Run 避免在有同步上下文（如 UI 线程）时死锁
+                // 直接 .GetAwaiter().GetResult() 在 UI 线程上会造成：
+                // DisconnectCoreAsync 的 await 完成后需要回到 UI 线程续延，但 UI 线程被 GetResult 阻塞
                 try
                 {
-                    DisconnectCoreAsync(isDisposing: true).ConfigureAwait(false).GetAwaiter().GetResult();
+                    Task.Run(() => DisconnectCoreAsync(isDisposing: true)).GetAwaiter().GetResult();
                 }
                 catch (Exception ex)
                 {

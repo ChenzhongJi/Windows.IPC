@@ -726,10 +726,8 @@ namespace Windows.IPC.Server
 
             try
             {
-                StopCoreAsync(isDisposing: true)
-                    .ConfigureAwait(false)
-                    .GetAwaiter()
-                    .GetResult();
+                // 使用 Task.Run 避免在有同步上下文（如 UI 线程）时死锁
+                Task.Run(() => StopCoreAsync(isDisposing: true)).GetAwaiter().GetResult();
 
                 _dispatcher?.Dispose();
                 _clientManager?.Dispose();

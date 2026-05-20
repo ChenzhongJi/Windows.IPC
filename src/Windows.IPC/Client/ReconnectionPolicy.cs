@@ -121,9 +121,10 @@ namespace Windows.IPC.Client
             {
                 try
                 {
-                    // 在某些情况下同步等待可能导致阻塞，但我们必须等待任务完成
-                    // 以确保正确清理
-                    taskToWait.GetAwaiter().GetResult(); // 等待任务完成
+                    // 使用 Task.Run 避免在有同步上下文（如 UI 线程）时死锁
+                    // 直接 GetAwaiter().GetResult() 在 UI 线程上会造成：
+                    // 重连循环的 await 完成后需要回到 UI 线程续延，但 UI 线程被此调用阻塞
+                    Task.Run(() => taskToWait).GetAwaiter().GetResult();
                 }
                 catch
                 {
