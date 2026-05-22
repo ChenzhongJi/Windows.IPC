@@ -17,7 +17,7 @@ namespace Windows.IPC.Protocol
     {
         private const uint MAGIC_NUMBER = 0x49504358; // "IPCX"
         private const int HEADER_SIZE = 10; // 4 + 4 + 2
-        private const int MAX_MESSAGE_SIZE = 10 * 1024 * 1024; // 10MB
+        public const int DefaultMaxMessageSize = 10 * 1024 * 1024; // 10MB
 
         public enum FrameType : ushort
         {
@@ -29,11 +29,11 @@ namespace Windows.IPC.Protocol
         /// <summary>
         /// 编码消息帧
         /// </summary>
-        public static byte[] Encode(FrameType type, ReadOnlySpan<byte> payload)
+        public static byte[] Encode(FrameType type, ReadOnlySpan<byte> payload, int maxMessageSize = DefaultMaxMessageSize)
         {
-            if (payload.Length > MAX_MESSAGE_SIZE)
+            if (payload.Length > maxMessageSize)
             {
-                throw new ArgumentException($"Payload too large: {payload.Length} bytes");
+                throw new ArgumentException($"Payload too large: {payload.Length} bytes, maximum is {maxMessageSize} bytes");
             }
 
             var totalSize = HEADER_SIZE + payload.Length;
@@ -57,7 +57,7 @@ namespace Windows.IPC.Protocol
         /// <summary>
         /// 解码消息帧
         /// </summary>
-        public static bool TryDecode(ReadOnlySpan<byte> buffer, out FrameType type, out ReadOnlyMemory<byte> payload, out int consumedBytes)
+        public static bool TryDecode(ReadOnlySpan<byte> buffer, out FrameType type, out ReadOnlyMemory<byte> payload, out int consumedBytes, int maxMessageSize = DefaultMaxMessageSize)
         {
             type = default;
             payload = default;
@@ -78,9 +78,9 @@ namespace Windows.IPC.Protocol
 
             // 读取长度
             var payloadLength = BinaryPrimitives.ReadInt32BigEndian(buffer.Slice(4, 4));
-            if (payloadLength < 0 || payloadLength > MAX_MESSAGE_SIZE)
+            if (payloadLength < 0 || payloadLength > maxMessageSize)
             {
-                throw new InvalidDataException($"Invalid payload length: {payloadLength}");
+                throw new InvalidDataException($"Invalid payload length: {payloadLength}, maximum is {maxMessageSize}");
             }
 
             var totalSize = HEADER_SIZE + payloadLength;

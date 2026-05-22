@@ -189,7 +189,8 @@ namespace Windows.IPC.Security
             out Protocol.MessageFrame.FrameType type,
             out ReadOnlyMemory<byte> payload,
             out long sequenceId,
-            out int consumedBytes)
+            out int consumedBytes,
+            int maxMessageSize = 10 * 1024 * 1024)
         {
             ThrowIfDisposed();
 
@@ -214,9 +215,9 @@ namespace Windows.IPC.Security
 
             // 读取长度
             var payloadLength = BinaryPrimitives.ReadInt32BigEndian(buffer.Slice(4, 4));
-            if (payloadLength < 0 || payloadLength > 10 * 1024 * 1024) // 10MB max
+            if (payloadLength < 0 || payloadLength > maxMessageSize)
             {
-                throw new InvalidDataException($"Invalid payload length: {payloadLength}");
+                throw new InvalidDataException($"Invalid payload length: {payloadLength}, maximum is {maxMessageSize}");
             }
 
             // 读取标志

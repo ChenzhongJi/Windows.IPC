@@ -15,6 +15,7 @@ namespace Windows.IPC.Server
     public class ConnectedClient : IDisposable
     {
         private readonly NamedPipeConnection _connection;
+        private readonly ClientIdentity? _identity;
         private bool _disposed;
 
         public string ClientId => _connection.ConnectionId;
@@ -27,11 +28,18 @@ namespace Windows.IPC.Server
         /// </summary>
         public ClientMetadata Metadata { get; }
 
+        /// <summary>
+        /// 客户端身份信息（由鉴权流程填充）
+        /// 包含进程ID、用户名、域、是否提升权限、数字签名等
+        /// </summary>
+        public ClientIdentity? Identity => _identity;
+
         public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
 
-        public ConnectedClient(NamedPipeConnection connection)
+        public ConnectedClient(NamedPipeConnection connection, ClientIdentity? identity = null)
         {
             _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+            _identity = identity;
             ConnectedAt = DateTime.UtcNow;
             Metadata = new ClientMetadata();
 

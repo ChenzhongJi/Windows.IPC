@@ -317,6 +317,8 @@ namespace Windows.IPC.Server
 
         /// <summary>
         /// 监听器循环
+        /// 每个监听器维护一个等待中的管道实例，接受连接后将连接设置委托给后台任务，
+        /// 自身立即返回循环创建下一个等待实例，最大化并发接受能力。
         /// </summary>
         private async Task ListenerLoopAsync(int listenerId, CancellationToken cancellationToken)
         {
@@ -350,8 +352,6 @@ namespace Windows.IPC.Server
                     var acceptedPipe = pipeServer;
                     pipeServer = null; // 防止 catch 块中误释放
                     _ = SetupAndHandleConnectionAsync(acceptedPipe, cancellationToken);
-
-                    // 立即继续循环，创建新的管道实例等待下一个连接
                 }
                 catch (OperationCanceledException)
                 {
@@ -438,21 +438,21 @@ namespace Windows.IPC.Server
                 }
 
                 // 3. 客户端鉴权（基于 Windows 进程身份）
-                // 客户端鉴权
+                ClientIdentity? clientIdentity = null;
                 if (_options.ClientAuthenticator != null)
                 {
-                    var authResult = await AuthenticateClientAsync(pipeServer, cancellationToken)
+                    var (authResult, authIdentity) = await AuthenticateClientAsync(pipeServer, cancellationToken)
                         .ConfigureAwait(false);
 
                     if (!authResult.IsAuthenticated)
                     {
                         _logger?.LogWarning("Client authentication failed: {Reason}. Rejecting connection.",
                             authResult.RejectReason);
-
                         pipeServer.Dispose();
                         return;
                     }
 
+                    clientIdentity = authIdentity;
                     _logger?.LogInformation("Client authenticated successfully");
                 }
 
@@ -465,6 +465,15 @@ namespace Windows.IPC.Server
                     useV2FrameFormat = true;
                 }
 
+                // 模拟级别审计
+                if (_options.PipeOptions.ImpersonationLevel != System.Security.Principal.TokenImpersonationLevel.Identification &&
+                    _options.PipeOptions.ImpersonationLevel != System.Security.Principal.TokenImpersonationLevel.None)
+                {
+                    _logger?.LogWarning(
+                        "Pipe impersonation level set to {Level}. This may allow clients to impersonate the server's security context.",
+                        _options.PipeOptions.ImpersonationLevel);
+                }
+
                 // 创建连接对象
                 // 注意：如果使用了加密流，activeStream 是加密流；否则是 pipeServer
                 // pipeStream 参数保留用于 IsConnected 检查
@@ -473,9 +482,13 @@ namespace Windows.IPC.Server
                     pipeServer,
                     frameSecurity,
                     useV2FrameFormat,
-                    _logger);
+                    _logger,
+                    maxMessageSize: _options.PipeOptions.MaxMessageSize,
+                    maxReceiveBufferSize: _options.PipeOptions.MaxReceiveBufferSize,
+                    maxSendQueueSize: _options.PipeOptions.MaxSendQueueSize,
+                    maxReceiveQueueSize: _options.PipeOptions.MaxReceiveQueueSize);
 
-                var client = new ConnectedClient(connection);
+                var client = new ConnectedClient(connection, clientIdentity);
 
                 // 添加到客户端管理器
                 if (_clientManager.AddClient(client))
@@ -539,7 +552,8 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 鉴权客户端
         /// </summary>
-        private async Task<AuthenticationResult> AuthenticateClientAsync(
+        /// <returns>鉴权结果和客户端身份信息</returns>
+        private async Task<(AuthenticationResult Result, ClientIdentity? Identity)> AuthenticateClientAsync(
             NamedPipeServerStream pipeServer,
             CancellationToken cancellationToken)
         {
@@ -578,77 +592,120 @@ namespace Windows.IPC.Server
                     });
                 }
 
-                return result;
+                return (result, identity);
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error during client authentication");
-                return AuthenticationResult.Reject($"Authentication error: {ex.Message}");
+                return (AuthenticationResult.Reject($"Authentication error: {ex.Message}"), null);
             }
         }
 
         /// <summary>
         /// 创建命名管道服务器
+        /// 
+        /// 管道创建策略（三层降级，逐步丢弃安全能力）：
+        /// 
+        /// 层级 | 方法                        | SDDL | ImpersonationLevel | 说明
+        /// -----|-----------------------------|------|--------------------|------
+        ///  1   | NativePipe.Create()         | ✅   | ✅                 | 完整 Win32 API
+        ///  2   | NativePipe.CreateWithSddl() | ✅   | ❌                 | 去掉 ImpersonationLevel 标志重试
+        ///  3   | 基本托管构造函数             | ❌   | ❌                 | 最后手段
+        /// 
+        /// SDDL 控制谁能连接（ACL 访问控制），ImpersonationLevel 控制连接后能模拟什么。
+        /// 两者是正交安全维度，应尽可能同时保留。Win32 CreateNamedPipe 的 SDDL 和
+        /// ImpersonationLevel 是同一调用的不同参数（SECURITY_ATTRIBUTES vs dwOpenMode 标志），
+        /// 失败可能是其中一个维度导致的，因此降级时应逐步丢弃，而非一刀切。
         /// </summary>
         private NamedPipeServerStream CreatePipeServer()
         {
-            // 优先使用自定义 SDDL
-            string? sddl = _options.PipeOptions.SecurityDescriptor;
+            var effectiveMaxInstances = Math.Min(_options.MaxConcurrentClients + _listenerCount, 254);
+            var impersonationLevel = _options.PipeOptions.ImpersonationLevel;
+            var pipeName = _options.PipeOptions.PipeName;
+            var bufferSize = _options.PipeOptions.BufferSize;
 
-            // 如果没有自定义 SDDL，根据安全模式获取
+            // 获取 SDDL 安全描述符（可选）
+            string? sddl = _options.PipeOptions.SecurityDescriptor;
             if (string.IsNullOrEmpty(sddl) && _options.SecurityMode != PipeSecurityMode.Default)
             {
                 sddl = PipeSecurityHelper.GetSddlForMode(_options.SecurityMode);
             }
 
-            var effectiveMaxInstances = _options.MaxConcurrentClients;
-            // 如果有 SDDL，使用原生 API 创建
-            if (!string.IsNullOrEmpty(sddl))
+            // === 层级 1：Win32 原生 API — SDDL + ImpersonationLevel 同时生效 ===
+            try
             {
-                try
-                {
-                    _logger?.LogDebug("Creating pipe with SDDL security: {Mode}", _options.SecurityMode);
+                _logger?.LogDebug(
+                    "Creating pipe via Win32 API: SDDL={HasSddl}, ImpersonationLevel={Level}",
+                    !string.IsNullOrEmpty(sddl), impersonationLevel);
 
-                    // SDDL 路径同样需要容纳活跃连接 + 等待实例
-                    effectiveMaxInstances = Math.Min(_options.MaxConcurrentClients + _listenerCount, 254);
+                var pipeServer = NativePipe.Create(
+                    pipeName, effectiveMaxInstances, bufferSize,
+                    impersonationLevel, sddl);
 
-                    var pipeServer = NativePipe.CreateWithSddl(
-                        _options.PipeOptions.PipeName,
-                        effectiveMaxInstances,
-                        _options.PipeOptions.BufferSize,
-                        sddl!);
-
-                    _logger?.LogInformation("Successfully created pipe with custom security");
-                    return pipeServer;
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Failed to create pipe with custom security, falling back to default");
-                }
+                _logger?.LogInformation(
+                    "Pipe created (Win32): SDDL={HasSddl}, ImpersonationLevel={Level}",
+                    !string.IsNullOrEmpty(sddl), impersonationLevel);
+                return pipeServer;
             }
+            catch (InvalidOperationException)
+            {
+                // SDDL 解析失败等不可恢复错误，直接抛出
+                throw;
+            }
+            catch (Exception ex1)
+            {
+                _logger?.LogWarning(ex1,
+                    "Win32 pipe creation failed (SDDL + ImpersonationLevel), " +
+                    "attempting fallback without ImpersonationLevel flags");
 
-            // 降级方案：使用默认安全设置
-            _logger?.LogInformation("Creating pipe with default security settings");
+                // === 层级 2：Win32 原生 API（去掉 ImpersonationLevel 标志）— 保留 SDDL ===
+                // CreateNamedPipe 的 SDDL (lpSecurityAttributes) 和 ImpersonationLevel
+                // (dwOpenMode 中的 PIPE_REJECT_REMOTE_CLIENTS 标志) 是独立参数，
+                // 层级 1 失败可能是标志组合问题，去掉 ImpersonationLevel 标志重试
+                // 仍可保留 SDDL 访问控制
+                if (!string.IsNullOrEmpty(sddl))
+                {
+                    try
+                    {
+                        var pipeServer = NativePipe.CreateWithSddl(
+                            pipeName, effectiveMaxInstances, bufferSize, sddl!);
 
-            // maxNumberOfServerInstances 必须容纳：活跃连接数 + 等待中的管道实例数（监听器数量）
-            // 例如 MaxConcurrentClients=101，监听器=64 时，需要 101+64=165 个实例
-            // Windows 命名管道最大支持 254 个实例
-            effectiveMaxInstances = Math.Min(_options.MaxConcurrentClients + _listenerCount, 254);
+                        _logger?.LogWarning(
+                            "Pipe created (Win32, SDDL only): SDDL preserved, " +
+                            "ImpersonationLevel={Level} NOT enforced (fallback)",
+                            impersonationLevel);
+                        return pipeServer;
+                    }
+                    catch (Exception ex2)
+                    {
+                        _logger?.LogWarning(ex2,
+                            "Win32 pipe creation with SDDL-only also failed, " +
+                            "falling back to basic managed constructor");
+                    }
+                }
 
-            var defaultPipeServer = new NamedPipeServerStream(
-                pipeName: _options.PipeOptions.PipeName,
-                direction: PipeDirection.InOut,
-                maxNumberOfServerInstances: effectiveMaxInstances,
-                transmissionMode: PipeTransmissionMode.Byte,
-                options: System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.WriteThrough,
-                inBufferSize: _options.PipeOptions.BufferSize,
-                outBufferSize: _options.PipeOptions.BufferSize);
+                // === 层级 3：基本托管构造函数 — SDDL 和 ImpersonationLevel 均不生效 ===
+                _logger?.LogWarning(
+                    "Creating pipe with basic managed constructor: " +
+                    "SDDL and ImpersonationLevel will NOT be enforced");
 
-            return defaultPipeServer;
+                return new NamedPipeServerStream(
+                    pipeName,
+                    PipeDirection.InOut,
+                    effectiveMaxInstances,
+                    PipeTransmissionMode.Byte,
+                    System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.WriteThrough,
+                    bufferSize,
+                    bufferSize);
+            }
         }
 
         /// <summary>
-        /// 处理客户端消息
+        /// 处理客户端消息（消息分发循环）
+        /// 
+        /// NamedPipeConnection 内部的接收循环负责从管道读取原始数据、解码帧、
+        /// 写入接收 Channel。此方法从 Channel 取出已解码的消息进行分发。
+        /// 当消息消费速度 < 生产速度时，接收 Channel 积满 → 背压传导到发送端。
         /// </summary>
         private async Task HandleClientAsync(ConnectedClient client, CancellationToken cancellationToken)
         {

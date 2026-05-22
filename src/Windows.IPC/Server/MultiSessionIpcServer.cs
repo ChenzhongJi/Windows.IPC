@@ -207,12 +207,17 @@ namespace Windows.IPC.Server
                             // ⭐ 关键：使用 Global\ 前缀使管道跨 Session 可见
                             PipeName = $"Global\\{pipeName}",
                             BufferSize = _baseOptions.PipeOptions.BufferSize,
-                            SecurityDescriptor = _baseOptions.PipeOptions.SecurityDescriptor
+                            SecurityDescriptor = _baseOptions.PipeOptions.SecurityDescriptor,
+                            // ⭐ 安全配置必须传播到子会话服务器，否则加密/认证/完整性全部失效
+                            SecurityOptions = _baseOptions.PipeOptions.SecurityOptions
                         },
                     MaxConcurrentClients = _baseOptions.MaxConcurrentClients,
                     AutoHandleHeartbeat = _baseOptions.AutoHandleHeartbeat,
                     SecurityMode = _baseOptions.SecurityMode,
-                    ClientAuthenticator = _baseOptions.ClientAuthenticator
+                    ClientAuthenticator = _baseOptions.ClientAuthenticator,
+                    // ⭐ 应用层认证协议也必须传播
+                    AuthenticationProtocol = _baseOptions.AuthenticationProtocol,
+                    LogAuthenticationFailures = _baseOptions.LogAuthenticationFailures
                 };
 
                 var server = new IpcServer(sessionOptions, _logger);
@@ -291,7 +296,9 @@ namespace Windows.IPC.Server
                 return;
             _disposed = true;
 
-            StopAsync().GetAwaiter().GetResult();
+            // 使用 Task.Run 避免 UI/STA 线程上的同步死锁
+            // 与 IpcServer.Dispose 和 IpcClient.Dispose 保持一致
+            Task.Run(() => StopAsync()).GetAwaiter().GetResult();
 
             foreach (var server in _sessionServers.Values)
             {

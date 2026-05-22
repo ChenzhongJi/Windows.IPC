@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.IO;
 using System.IO.Pipes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -170,12 +171,17 @@ namespace Windows.IPC.Client
                     _pipeStream,
                     frameSecurity,
                     useV2FrameFormat,
-                    _logger);
+                    _logger,
+                    maxMessageSize: _options.PipeOptions.MaxMessageSize,
+                    maxReceiveBufferSize: _options.PipeOptions.MaxReceiveBufferSize,
+                    maxSendQueueSize: _options.PipeOptions.MaxSendQueueSize,
+                    maxReceiveQueueSize: _options.PipeOptions.MaxReceiveQueueSize);
                 _connection.StateChanged += OnConnectionStateChanged;
 
-                // 启动接收循环
+                // 注意：NamedPipeConnection 内部已启动接收循环（读取管道 → 写入 Channel），
+                // 此处启动的是消息分发循环（从 Channel 读取 → 分发给 RequestManager/事件）
                 _receiveCts = new CancellationTokenSource();
-                _receiveLoopTask = ReceiveLoopAsync(_receiveCts.Token);
+                _receiveLoopTask = DispatchLoopAsync(_receiveCts.Token);
 
                 // 启动心跳
                 StartHeartbeat();
@@ -395,11 +401,20 @@ namespace Windows.IPC.Client
         }
 
         /// <summary>
-        /// 接收循环
+        /// 消息分发循环
+        /// 
+        /// NamedPipeConnection 内部的接收循环负责从管道读取原始数据、解码帧、
+        /// 写入接收 Channel。此分发循环从 Channel 取出已解码的消息，
+        /// 分发给 RequestManager（响应消息）或 NotificationReceived 事件（通知消息）。
+        /// 
+        /// 这种架构实现了端到端背压：
+        /// 当消息消费速度 < 生产速度时，接收 Channel 积满 →
+        /// 读取循环暂停 → 管道缓冲区填满 → 发送端 WriteAsync 阻塞 →
+        /// 发送端自然降速。
         /// </summary>
-        private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
+        private async Task DispatchLoopAsync(CancellationToken cancellationToken)
         {
-            _logger?.LogDebug("Receive loop started");
+            _logger?.LogDebug("Dispatch loop started");
 
             try
             {
@@ -414,7 +429,7 @@ namespace Windows.IPC.Client
                         break;
                     }
 
-                    // 处理不同类型的消息
+                    // 分发消息
                     if (message is ResponseMessage response)
                     {
                         _requestManager.HandleResponse(response);
@@ -427,11 +442,11 @@ namespace Windows.IPC.Client
             }
             catch (OperationCanceledException)
             {
-                _logger?.LogDebug("Receive loop cancelled");
+                _logger?.LogDebug("Dispatch loop cancelled");
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Receive loop error");
+                _logger?.LogError(ex, "Dispatch loop error");
 
                 // 触发重连
                 if (_options.ReconnectionPolicy.Enabled)
@@ -445,7 +460,7 @@ namespace Windows.IPC.Client
                 }
             }
 
-            _logger?.LogDebug("Receive loop stopped");
+            _logger?.LogDebug("Dispatch loop stopped");
         }
 
         /// <summary>
@@ -480,11 +495,13 @@ namespace Windows.IPC.Client
                 return;
             }
 
+            // 使用 Change(dueTime, period) 模式：每次心跳完成后才调度下一次
+            // 避免前一次心跳尚未完成时定时器再次触发导致重入堆积
             _heartbeatTimer = new Timer(
                 OnHeartbeatTimerCallback,
                 null,
                 TimeSpan.FromMilliseconds(_options.HeartbeatIntervalMs),
-                Timeout.InfiniteTimeSpan);
+                Timeout.InfiniteTimeSpan); // 仅触发一次，在回调中重新调度
 
             _logger?.LogDebug("Heartbeat started with interval {IntervalMs}ms", _options.HeartbeatIntervalMs);
         }

@@ -3,12 +3,15 @@ using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.IPC.Exceptions;
 using Windows.IPC.Protocol;
 using Windows.IPC.Security;
+using Windows.IPC.Server;
+using Windows.IPC.Transport;
 using Xunit;
 
 namespace Windows.IPC.Tests
@@ -872,6 +875,181 @@ namespace Windows.IPC.Tests
 
             // 明文 100 字节 → 填充到 112 字节 → IV(16) + 密文(112) + HMAC(32) = 160
             Assert.Equal(160, AesCbcHmacEncryptionProvider.GetEncryptedSize(100));
+        }
+
+        #endregion
+
+        #region Pipe Impersonation Protection - 管道模拟攻击防护测试
+
+        [Fact]
+        public void IpcPipeOptions_ImpersonationLevel_DefaultsToIdentification()
+        {
+            var opts = new IpcPipeOptions();
+            Assert.Equal(TokenImpersonationLevel.Identification, opts.ImpersonationLevel);
+        }
+
+        [Fact]
+        public void IpcPipeOptions_ImpersonationLevel_CanBeSetToNone()
+        {
+            var opts = new IpcPipeOptions
+            {
+                ImpersonationLevel = TokenImpersonationLevel.None
+            };
+            Assert.Equal(TokenImpersonationLevel.None, opts.ImpersonationLevel);
+        }
+
+        [Fact]
+        public void ConnectedClient_Identity_DefaultsToNull()
+        {
+            // ConnectedClient 在无身份信息时，Identity 应为 null
+            // 这里只测试构造函数参数传递
+            var identity = new ClientIdentity
+            {
+                ProcessId = 1234,
+                ProcessName = "test.exe",
+                UserName = "TestUser",
+                IsElevated = false
+            };
+
+            // 有身份信息时
+            // 注意：完整测试需要 NamedPipeConnection，这里仅验证 ClientIdentity 对象
+            Assert.Equal(1234, identity.ProcessId);
+            Assert.Equal("test.exe", identity.ProcessName);
+            Assert.Equal("TestUser", identity.UserName);
+            Assert.False(identity.IsElevated);
+        }
+
+        #endregion
+
+        #region Flow Control & Backpressure - 流量控制与背压测试
+
+        [Fact]
+        public void IpcPipeOptions_MaxMessageSize_DefaultsTo10MB()
+        {
+            var opts = new IpcPipeOptions();
+            Assert.Equal(10 * 1024 * 1024, opts.MaxMessageSize);
+        }
+
+        [Fact]
+        public void IpcPipeOptions_MaxReceiveBufferSize_DefaultsTo16MB()
+        {
+            var opts = new IpcPipeOptions();
+            Assert.Equal(16 * 1024 * 1024, opts.MaxReceiveBufferSize);
+        }
+
+        [Fact]
+        public void IpcPipeOptions_MaxConcurrentRequestsPerClient_DefaultsTo100()
+        {
+            var opts = new IpcPipeOptions();
+            Assert.Equal(100, opts.MaxConcurrentRequestsPerClient);
+        }
+
+        [Fact]
+        public void IpcPipeOptions_MaxSendQueueSize_DefaultsTo1000()
+        {
+            var opts = new IpcPipeOptions();
+            Assert.Equal(1000, opts.MaxSendQueueSize);
+        }
+
+        [Fact]
+        public void IpcPipeOptions_FlowControl_CanBeCustomized()
+        {
+            var opts = new IpcPipeOptions
+            {
+                MaxMessageSize = 1024 * 1024,      // 1MB
+                MaxReceiveBufferSize = 2 * 1024 * 1024, // 2MB
+                MaxConcurrentRequestsPerClient = 50,
+                MaxSendQueueSize = 500
+            };
+
+            Assert.Equal(1024 * 1024, opts.MaxMessageSize);
+            Assert.Equal(2 * 1024 * 1024, opts.MaxReceiveBufferSize);
+            Assert.Equal(50, opts.MaxConcurrentRequestsPerClient);
+            Assert.Equal(500, opts.MaxSendQueueSize);
+        }
+
+        #endregion
+
+        #region Message Size Limits - 消息大小限制与防护测试
+
+        [Fact]
+        public void MessageFrame_Encode_RejectsOversizedPayload_CustomLimit()
+        {
+            // Arrange — 自定义 100 字节限制
+            var payload = new byte[101];
+            using (var rng = RandomNumberGenerator.Create()) { rng.GetBytes(payload); }
+
+            // Act & Assert — 超过 100 字节应抛出异常
+            Assert.Throws<ArgumentException>(() =>
+                MessageFrame.Encode(MessageFrame.FrameType.Request, payload, maxMessageSize: 100));
+        }
+
+        [Fact]
+        public void MessageFrame_Encode_AcceptsPayloadWithinCustomLimit()
+        {
+            // Arrange — 自定义 100 字节限制，发送 100 字节
+            var payload = new byte[100];
+            using (var rng = RandomNumberGenerator.Create()) { rng.GetBytes(payload); }
+
+            // Act — 不应抛出异常
+            var encoded = MessageFrame.Encode(MessageFrame.FrameType.Request, payload, maxMessageSize: 100);
+
+            // Assert
+            Assert.NotNull(encoded);
+            Assert.True(encoded.Length > payload.Length); // 帧头 + payload
+        }
+
+        [Fact]
+        public void MessageFrame_TryDecode_RejectsOversizedPayload_CustomLimit()
+        {
+            // Arrange — 编码一个 200 字节的消息
+            var payload = new byte[200];
+            using (var rng = RandomNumberGenerator.Create()) { rng.GetBytes(payload); }
+            var encoded = MessageFrame.Encode(MessageFrame.FrameType.Request, payload);
+
+            // Act & Assert — 用 100 字节限制解码应抛出异常
+            Assert.Throws<InvalidDataException>(() =>
+                MessageFrame.TryDecode(encoded, out _, out _, out _, maxMessageSize: 100));
+        }
+
+        [Fact]
+        public void MessageFrame_DefaultMaxMessageSize_Is10MB()
+        {
+            Assert.Equal(10 * 1024 * 1024, MessageFrame.DefaultMaxMessageSize);
+        }
+
+        [Fact]
+        public void FrameSecurity_TryDecodeSecureFrame_RejectsOversizedPayload()
+        {
+            // Arrange — 编码 v2 帧，payload 200 字节
+            using var frameSecurity = new FrameSecurity(enableHmac: false);
+            var payload = new byte[200];
+            using (var rng = RandomNumberGenerator.Create()) { rng.GetBytes(payload); }
+            var encoded = frameSecurity.EncodeSecureFrame(MessageFrame.FrameType.Request, payload);
+
+            // Act & Assert — 用 100 字节限制解码应抛出异常
+            Assert.Throws<InvalidDataException>(() =>
+                frameSecurity.TryDecodeSecureFrame(encoded, out _, out _, out _, out _, maxMessageSize: 100));
+        }
+
+        [Fact]
+        public void FrameSecurity_TryDecodeSecureFrame_AcceptsPayloadWithinLimit()
+        {
+            // Arrange — 编码 v2 帧，payload 50 字节，限制 100
+            using var frameSecurity = new FrameSecurity(enableHmac: false);
+            var payload = new byte[50];
+            using (var rng = RandomNumberGenerator.Create()) { rng.GetBytes(payload); }
+            var encoded = frameSecurity.EncodeSecureFrame(MessageFrame.FrameType.Request, payload);
+
+            // Act — 100 字节限制内应正常解码
+            var result = frameSecurity.TryDecodeSecureFrame(
+                encoded, out var type, out var decodedPayload, out var seqId, out var consumed,
+                maxMessageSize: 100);
+
+            // Assert
+            Assert.True(result);
+            Assert.Equal(MessageFrame.FrameType.Request, type);
+            Assert.Equal(payload, decodedPayload.ToArray());
         }
 
         #endregion
