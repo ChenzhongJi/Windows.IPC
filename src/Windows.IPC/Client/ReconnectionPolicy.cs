@@ -302,7 +302,9 @@ namespace Windows.IPC.Client
     /// </summary>
     public class ReconnectionEventArgs : EventArgs
     {
+        /// <summary>重连尝试次数。</summary>
         public int AttemptCount { get; set; }
+        /// <summary>与重连事件关联的异常；没有异常时为 null。</summary>
         public Exception? Exception { get; set; }
     }
 }

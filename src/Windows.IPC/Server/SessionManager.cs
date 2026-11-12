@@ -18,10 +18,15 @@ namespace Windows.IPC.Server
         private long _lastSeenAt; // 使用 ticks 存储 DateTime
         private readonly object _dateTimeLock = new object();
 
+        /// <summary>Windows 会话标识符。</summary>
         public int SessionId { get; set; }
+        /// <summary>会话所属用户名。</summary>
         public string UserName { get; set; } = string.Empty;
+        /// <summary>会话用户所属的域名。</summary>
         public string DomainName { get; set; } = string.Empty;
+        /// <summary>管理器记录的会话状态。</summary>
         public SessionState State { get; set; }
+        /// <summary>创建此会话信息记录的时间，不一定是系统会话的创建时间。</summary>
         public DateTime CreatedAt
         {
             get
@@ -39,6 +44,7 @@ namespace Windows.IPC.Server
                 }
             }
         }
+        /// <summary>最近一次观察或更新此会话的时间。</summary>
         public DateTime LastSeenAt
         {
             get
@@ -58,11 +64,16 @@ namespace Windows.IPC.Server
         }
     }
 
+    /// <summary>管理器记录的会话状态。</summary>
     public enum SessionState
     {
+        /// <summary>会话处于活动状态。</summary>
         Active,
+        /// <summary>会话已连接。</summary>
         Connected,
+        /// <summary>会话已断开连接。</summary>
         Disconnected,
+        /// <summary>会话已锁定。</summary>
         Locked
     }
 
@@ -82,13 +93,21 @@ namespace Windows.IPC.Server
         private long _backupScanCount;
         private long _backupScanFoundCount;
 
+        /// <summary>管理器发现或登记会话时触发。</summary>
         public event EventHandler<SessionEventArgs>? SessionCreated;
+        /// <summary>管理器移除已结束的会话时触发。</summary>
         public event EventHandler<SessionEventArgs>? SessionTerminated;
+        /// <summary>处理到会话登录通知时触发。</summary>
         public event EventHandler<SessionEventArgs>? SessionLogon;
+        /// <summary>处理到已跟踪会话的注销通知时触发。</summary>
         public event EventHandler<SessionEventArgs>? SessionLogoff;
+        /// <summary>处理到已跟踪会话的锁定通知时触发。</summary>
         public event EventHandler<SessionEventArgs>? SessionLock;
+        /// <summary>处理到已跟踪会话的解锁通知时触发。</summary>
         public event EventHandler<SessionEventArgs>? SessionUnlock;
 
+        /// <summary>创建会话管理器。</summary>
+        /// <param name='logger'>可选的日志记录器。</param>
         public SessionManager(ILogger? logger = null)
         {
             _logger = logger;
@@ -522,7 +541,7 @@ namespace Windows.IPC.Server
         }
 
         /// <summary>
-        /// 获取所有活动 Session
+        /// 获取当前跟踪的所有 Session，包括可能不处于活动状态的会话。
         /// </summary>
         public IReadOnlyList<SessionInfo> GetActiveSessions()
         {
@@ -601,6 +620,7 @@ namespace Windows.IPC.Server
 
         #endregion
 
+        /// <summary>停止监控并清除跟踪的会话。</summary>
         public void Dispose()
         {
             if (_disposed) return;
@@ -667,6 +687,7 @@ namespace Windows.IPC.Server
     /// </summary>
     public class SessionEventArgs : EventArgs
     {
+        /// <summary>事件关联的会话信息。</summary>
         public SessionInfo Session { get; set; } = null!;
     }
 
@@ -675,14 +696,23 @@ namespace Windows.IPC.Server
     /// </summary>
     public enum SessionChangeReason
     {
+        /// <summary>连接到控制台会话。</summary>
         ConsoleConnect = 0x1,
+        /// <summary>断开控制台会话连接。</summary>
         ConsoleDisconnect = 0x2,
+        /// <summary>连接到远程会话。</summary>
         RemoteConnect = 0x3,
+        /// <summary>断开远程会话连接。</summary>
         RemoteDisconnect = 0x4,
+        /// <summary>用户登录会话。</summary>
         SessionLogon = 0x5,
+        /// <summary>用户注销会话。</summary>
         SessionLogoff = 0x6,
+        /// <summary>会话已锁定。</summary>
         SessionLock = 0x7,
+        /// <summary>会话已解锁。</summary>
         SessionUnlock = 0x8,
+        /// <summary>会话的远程控制状态发生变化。</summary>
         SessionRemoteControl = 0x9
     }
 
@@ -691,11 +721,17 @@ namespace Windows.IPC.Server
     /// </summary>
     public class SessionMonitorStatistics
     {
+        /// <summary>收到的会话变更通知次数。</summary>
         public long EventNotificationCount { get; set; }
+        /// <summary>执行备份扫描的次数。</summary>
         public long BackupScanCount { get; set; }
+        /// <summary>备份扫描发现的未跟踪或未清理会话数量。</summary>
         public long IssuesFoundByBackupScan { get; set; }
+        /// <summary>当前跟踪的会话数量。</summary>
         public int CurrentSessionCount { get; set; }
+        /// <summary>管理器是否持有事件接收器。</summary>
         public bool IsEventReceiverRunning { get; set; }
+        /// <summary>管理器是否持有备份扫描定时器。</summary>
         public bool IsBackupScanRunning { get; set; }
     }
 }

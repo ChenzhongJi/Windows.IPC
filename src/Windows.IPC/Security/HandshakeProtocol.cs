@@ -40,6 +40,8 @@ namespace Windows.IPC.Security
 
         private readonly ILogger? _logger;
 
+        /// <summary>创建握手协议处理器。</summary>
+        /// <param name='logger'>可选的日志记录器。</param>
         public HandshakeProtocol(ILogger? logger = null)
         {
             _logger = logger;

@@ -33,8 +33,10 @@ namespace Windows.IPC.Server
     /// </summary>
     public abstract class MessageHandler<TRequest, TResponse> : IMessageHandler
     {
+        /// <inheritdoc />
         public abstract string MessageType { get; }
 
+        /// <inheritdoc />
         public async Task<ResponseMessage> HandleRequestAsync(
             RequestMessage request,
             ConnectedClient client,

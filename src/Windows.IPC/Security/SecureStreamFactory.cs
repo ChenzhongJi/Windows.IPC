@@ -376,6 +376,8 @@ namespace Windows.IPC.Security
     {
         private readonly SecurityOptions _options;
 
+        /// <summary>使用指定安全选项创建会话上下文。</summary>
+        /// <param name='options'>会话使用的安全选项。</param>
         public SecuritySession(SecurityOptions options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -433,6 +435,8 @@ namespace Windows.IPC.Security
                 maxSequenceGap: _options.MaxSequenceGap);
         }
 
+        /// <summary>返回会话安全状态的文本表示。</summary>
+        /// <returns>包含认证、加密、签名和远端身份信息的描述。</returns>
         public override string ToString()
         {
             return $"SecuritySession(Auth={IsAuthenticated}, Enc={IsEncrypted}({EncryptionMethod}), " +

@@ -17,12 +17,17 @@ namespace Windows.IPC.Protocol
     {
         private const uint MAGIC_NUMBER = 0x49504358; // "IPCX"
         private const int HEADER_SIZE = 10; // 4 + 4 + 2
+        /// <summary>默认最大消息负载大小，单位为字节。</summary>
         public const int DefaultMaxMessageSize = 10 * 1024 * 1024; // 10MB
 
+        /// <summary>消息帧的类型。</summary>
         public enum FrameType : ushort
         {
+            /// <summary>请求帧。</summary>
             Request = 1,
+            /// <summary>响应帧。</summary>
             Response = 2,
+            /// <summary>通知帧。</summary>
             Notification = 3
         }
 

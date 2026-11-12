@@ -35,6 +35,7 @@ namespace Windows.IPC.Server
         private int _listenerCount;  // 当前监听器数量，用于计算 maxNumberOfServerInstances
         private readonly object _lock = new object();
 
+        /// <summary>服务器是否处于运行状态。</summary>
         public bool IsRunning
         {
             get
@@ -53,6 +54,7 @@ namespace Windows.IPC.Server
             }
         }
 
+        /// <summary>当前跟踪的客户端连接数量。</summary>
         public int ConnectedClientCount => _clientManager.ClientCount;
 
         /// <summary>
@@ -80,6 +82,9 @@ namespace Windows.IPC.Server
         public event EventHandler<ClientAuthenticationEventArgs>? ClientAuthenticationSucceeded;
 
 
+        /// <summary>创建 IPC 服务器。</summary>
+        /// <param name='options'>服务器选项；为 null 时使用默认选项。</param>
+        /// <param name='logger'>可选的日志记录器。</param>
         public IpcServer(IpcServerOptions? options = null, ILogger? logger = null)
         {
             _options = options ?? new IpcServerOptions();
@@ -847,6 +852,7 @@ namespace Windows.IPC.Server
 
         #endregion
 
+        /// <summary>同步停止服务器并释放资源。</summary>
         public void Dispose()
         {
             if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
@@ -871,6 +877,8 @@ namespace Windows.IPC.Server
             }
         }
 
+        /// <summary>异步停止服务器并释放资源。</summary>
+        /// <returns>表示释放操作的任务。</returns>
         public async ValueTask DisposeAsync()
         {
             if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
@@ -908,8 +916,11 @@ namespace Windows.IPC.Server
     /// </summary>
     public class NotificationReceivedEventArgs : EventArgs
     {
+        /// <summary>发送通知的客户端连接标识符。</summary>
         public string ClientId { get; set; } = string.Empty;
+        /// <summary>收到的通知类型标识。</summary>
         public string MessageType { get; set; } = string.Empty;
+        /// <summary>收到的通知序列化负载。</summary>
         public byte[] Payload { get; set; } = Array.Empty<byte>();
     }
 
@@ -918,7 +929,9 @@ namespace Windows.IPC.Server
     /// </summary>
     public class ClientAuthenticationEventArgs : EventArgs
     {
+        /// <summary>鉴权涉及的客户端身份信息，可能为空。</summary>
         public ClientIdentity? Identity { get; set; }
+        /// <summary>客户端的鉴权结果，可能为空。</summary>
         public AuthenticationResult? Result { get; set; }
     }
 

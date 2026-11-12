@@ -73,8 +73,10 @@ namespace Windows.IPC.Transport
         /// </summary>
         public int ReceiveQueueCount => Volatile.Read(ref _receiveQueueCount);
 
+        /// <inheritdoc />
         public string ConnectionId { get; }
 
+        /// <inheritdoc />
         public ConnectionState State
         {
             get
@@ -100,6 +102,7 @@ namespace Windows.IPC.Transport
             }
         }
 
+        /// <inheritdoc />
         public bool IsConnected
         {
             get
@@ -109,6 +112,7 @@ namespace Windows.IPC.Transport
             }
         }
 
+        /// <inheritdoc />
         public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
 
         /// <summary>
@@ -541,6 +545,7 @@ namespace Windows.IPC.Transport
 
         #endregion
 
+        /// <summary>停止连接工作循环并释放相关资源。</summary>
         public void Dispose()
         {
             if (_disposed)

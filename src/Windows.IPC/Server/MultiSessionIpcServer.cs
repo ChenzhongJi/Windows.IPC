@@ -22,16 +22,25 @@ namespace Windows.IPC.Server
         private bool _disposed;
         private bool _isRunning;
 
+        /// <summary>用于监控 Windows 会话的管理器。</summary>
         public SessionManager SessionManager => _sessionManager;
 
+        /// <summary>某个会话服务器有客户端连接时触发。</summary>
         public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
 
+        /// <summary>某个会话服务器有客户端断开连接时触发。</summary>
         public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
+        /// <summary>某个会话服务器收到客户端通知时触发。</summary>
         public event EventHandler<NotificationReceivedEventArgs>? NotificationReceived;
 
+        /// <summary>所有会话服务器的已连接客户端总数。</summary>
         public int TotalConnectedClients => _sessionServers.Values.Sum(s => s.ConnectedClientCount);
 
+        /// <summary>创建多会话 IPC 服务器。</summary>
+        /// <param name='baseOptions'>用于各会话服务器的基础选项。</param>
+        /// <param name='logger'>可选的日志记录器。</param>
+        /// <param name='handlerFactories'>为各会话服务器创建消息处理器的工厂。</param>
         public MultiSessionIpcServer(
             IpcServerOptions baseOptions,
             ILogger? logger = null,
@@ -290,6 +299,7 @@ namespace Windows.IPC.Server
             });
         }
 
+        /// <summary>停止服务器并释放会话监控资源。</summary>
         public void Dispose()
         {
             if (_disposed)
@@ -309,14 +319,19 @@ namespace Windows.IPC.Server
         }
     }
 
+    /// <summary>单个会话服务器的状态信息。</summary>
     public class SessionServerInfo
     {
+        /// <summary>Windows 会话标识符。</summary>
         public int SessionId { get; set; }
 
+        /// <summary>会话所属用户名。</summary>
         public string UserName { get; set; } = string.Empty;
 
+        /// <summary>已连接的客户端数量。</summary>
         public int ConnectedClients { get; set; }
 
+        /// <summary>会话服务器是否正在运行。</summary>
         public bool IsRunning { get; set; }
     }
 }

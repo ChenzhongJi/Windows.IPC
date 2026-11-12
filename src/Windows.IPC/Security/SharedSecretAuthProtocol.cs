@@ -64,6 +64,10 @@ namespace Windows.IPC.Security
         /// </summary>
         public Dictionary<string, string> Metadata { get; set; } = new Dictionary<string, string>();
 
+        /// <summary>创建认证成功结果。</summary>
+        /// <param name='clientIdentifier'>可选的客户端标识。</param>
+        /// <param name='role'>可选的客户端角色。</param>
+        /// <returns>认证成功结果。</returns>
         public static AuthenticationResult Success(string? clientIdentifier = null, string? role = null)
         {
             return new AuthenticationResult
@@ -74,6 +78,9 @@ namespace Windows.IPC.Security
             };
         }
 
+        /// <summary>创建认证拒绝结果。</summary>
+        /// <param name='reason'>拒绝原因。</param>
+        /// <returns>认证失败结果。</returns>
         public static AuthenticationResult Reject(string reason)
         {
             return new AuthenticationResult
@@ -129,6 +136,7 @@ namespace Windows.IPC.Security
         {
         }
 
+        /// <inheritdoc />
         public async Task<AuthenticationResult> AuthenticateServerAsync(
             System.IO.Stream stream,
             CancellationToken cancellationToken = default)
@@ -189,6 +197,7 @@ namespace Windows.IPC.Security
             }
         }
 
+        /// <inheritdoc />
         public async Task<AuthenticationResult> AuthenticateClientAsync(
             System.IO.Stream stream,
             CancellationToken cancellationToken = default)
@@ -327,6 +336,7 @@ namespace Windows.IPC.Security
             return result == 0;
         }
 
+        /// <summary>释放协议实例并清除其共享密钥副本。</summary>
         public void Dispose()
         {
             if (_disposed) return;

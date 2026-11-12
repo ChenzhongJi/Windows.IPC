@@ -55,7 +55,8 @@ dotnet test tests/Windows.IPC.IntegrationTests/Windows.IPC.IntegrationTests.cspr
 
 ## 文档与参与
 
-- [技术文档](docs/README.md)：历史文档，包含尚待核对的旧名称和示例，请以当前源码及示例为准。
+- [入门指南](docs/quick-start.md)：源码引用、示例运行、消息流程与安全配置。
+- [历史技术文档](docs/README.md)：包含旧名称和示例，仅供历史参考。
 - [贡献指南](CONTRIBUTING.md)：开发、测试与提交建议。
 - [安全说明](SECURITY.md)：漏洞报告与安全配置注意事项。
 

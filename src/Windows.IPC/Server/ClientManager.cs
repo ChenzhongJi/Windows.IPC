@@ -218,7 +218,9 @@ namespace Windows.IPC.Server
     /// </summary>
     public class ClientConnectedEventArgs : EventArgs
     {
+        /// <summary>客户端连接标识符。</summary>
         public string ClientId { get; set; } = string.Empty;
+        /// <summary>客户端连接记录的创建时间。</summary>
         public DateTime ConnectedAt { get; set; }
     }
 
@@ -227,8 +229,11 @@ namespace Windows.IPC.Server
     /// </summary>
     public class ClientDisconnectedEventArgs : EventArgs
     {
+        /// <summary>客户端连接标识符。</summary>
         public string ClientId { get; set; } = string.Empty;
+        /// <summary>生成断开事件的时间。</summary>
         public DateTime DisconnectedAt { get; set; }
+        /// <summary>可选的断开原因。</summary>
         public string? Reason { get; set; }
     }
 }

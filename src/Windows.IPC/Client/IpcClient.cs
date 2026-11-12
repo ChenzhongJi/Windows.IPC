@@ -38,6 +38,7 @@ namespace Windows.IPC.Client
         private readonly object _reconnectionLock = new object();
         private bool _disconnectRequested;
 
+        /// <summary>客户端当前的连接状态。</summary>
         public ConnectionState State
         {
             get
@@ -63,6 +64,7 @@ namespace Windows.IPC.Client
             }
         }
 
+        /// <summary>客户端状态和底层连接是否均为已连接。</summary>
         public bool IsConnected => State == ConnectionState.Connected && _connection?.IsConnected == true;
 
         /// <summary>
@@ -75,6 +77,9 @@ namespace Windows.IPC.Client
         /// </summary>
         public event EventHandler<NotificationReceivedEventArgs>? NotificationReceived;
 
+        /// <summary>创建 IPC 客户端。</summary>
+        /// <param name='options'>客户端选项；为 null 时使用默认选项。</param>
+        /// <param name='logger'>可选的日志记录器。</param>
         public IpcClient(IpcClientOptions? options = null, ILogger? logger = null)
         {
             _options = options ?? new IpcClientOptions();
@@ -784,8 +789,10 @@ namespace Windows.IPC.Client
     /// </summary>
     public class NotificationReceivedEventArgs : EventArgs
     {
+        /// <summary>收到的通知类型标识。</summary>
         public string MessageType { get; set; } = string.Empty;
 
+        /// <summary>收到的通知序列化负载。</summary>
         public byte[] Payload { get; set; } = Array.Empty<byte>();
     }
 }

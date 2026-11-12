@@ -217,6 +217,7 @@ namespace Windows.IPC.Security
                 throw new ObjectDisposedException(nameof(AesCbcHmacEncryptionProvider));
             }
         }
+        /// <summary>释放加密提供程序并清除其密钥副本。</summary>
         public void Dispose()
         {
             if (_disposed) return;

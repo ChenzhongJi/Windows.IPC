@@ -440,6 +440,7 @@ namespace Windows.IPC.Security
             return (encryptionKey, hmacKey);
         }
 
+        /// <summary>释放帧安全处理器并清除其 HMAC 密钥副本。</summary>
         public void Dispose()
         {
             if (_disposed) return;

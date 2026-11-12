@@ -18,9 +18,13 @@ namespace Windows.IPC.Server
         private readonly ClientIdentity? _identity;
         private bool _disposed;
 
+        /// <summary>客户端连接的标识符。</summary>
         public string ClientId => _connection.ConnectionId;
+        /// <summary>创建客户端连接记录的 UTC 时间。</summary>
         public DateTime ConnectedAt { get; }
+        /// <summary>当前连接状态。</summary>
         public ConnectionState State => _connection.State;
+        /// <summary>客户端连接当前是否可用。</summary>
         public bool IsConnected => _connection.IsConnected;
 
         /// <summary>
@@ -34,8 +38,12 @@ namespace Windows.IPC.Server
         /// </summary>
         public ClientIdentity? Identity => _identity;
 
+        /// <summary>底层连接状态发生变化时触发。</summary>
         public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
 
+        /// <summary>创建已连接客户端的表示。</summary>
+        /// <param name='connection'>客户端使用的命名管道连接。</param>
+        /// <param name='identity'>可选的客户端身份信息。</param>
         public ConnectedClient(NamedPipeConnection connection, ClientIdentity? identity = null)
         {
             _connection = connection ?? throw new ArgumentNullException(nameof(connection));
@@ -69,6 +77,7 @@ namespace Windows.IPC.Server
             StateChanged?.Invoke(this, e);
         }
 
+        /// <summary>释放底层连接。</summary>
         public void Dispose()
         {
             if (_disposed) return;

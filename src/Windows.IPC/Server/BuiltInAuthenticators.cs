@@ -17,6 +17,10 @@ namespace Windows.IPC.Server
         private readonly ILogger? _logger;
         private readonly bool _requireSigned;
 
+        /// <summary>创建基于客户端签名信息和证书指纹的鉴权器。</summary>
+        /// <param name='allowedThumbprints'>允许的证书指纹集合。</param>
+        /// <param name='requireSigned'>是否拒绝未签名的客户端；为 false 时允许未签名客户端。</param>
+        /// <param name='logger'>可选的日志记录器。</param>
         public SignatureAuthenticator(
             IEnumerable<string> allowedThumbprints,
             bool requireSigned = true,
@@ -29,6 +33,7 @@ namespace Windows.IPC.Server
             _logger = logger;
         }
 
+        /// <inheritdoc />
         public Task<AuthenticationResult> AuthenticateAsync(
             ClientIdentity identity,
             CancellationToken cancellationToken = default)
@@ -88,11 +93,15 @@ namespace Windows.IPC.Server
     /// <summary>
     /// 基于进程路径的鉴权器
     /// </summary>
+    /// <remarks>使用字符串前缀匹配，不验证目录边界或解析符号链接。</remarks>
     public class PathWhitelistAuthenticator : IClientAuthenticator
     {
         private readonly HashSet<string> _allowedPaths;
         private readonly ILogger? _logger;
 
+        /// <summary>创建基于可执行文件路径前缀的鉴权器。</summary>
+        /// <param name='allowedPaths'>允许的路径前缀集合。</param>
+        /// <param name='logger'>可选的日志记录器。</param>
         public PathWhitelistAuthenticator(
             IEnumerable<string> allowedPaths,
             ILogger? logger = null)
@@ -103,6 +112,7 @@ namespace Windows.IPC.Server
             _logger = logger;
         }
 
+        /// <inheritdoc />
         public Task<AuthenticationResult> AuthenticateAsync(
             ClientIdentity identity,
             CancellationToken cancellationToken = default)
@@ -132,11 +142,15 @@ namespace Windows.IPC.Server
     /// <summary>
     /// 基于公司名称的鉴权器
     /// </summary>
+    /// <remarks>公司名称来自文件版本元数据，本身不证明发布者身份。</remarks>
     public class CompanyAuthenticator : IClientAuthenticator
     {
         private readonly HashSet<string> _allowedCompanies;
         private readonly ILogger? _logger;
 
+        /// <summary>创建基于文件版本元数据中公司名称的鉴权器。</summary>
+        /// <param name='allowedCompanies'>允许的公司名称集合。</param>
+        /// <param name='logger'>可选的日志记录器。</param>
         public CompanyAuthenticator(
             IEnumerable<string> allowedCompanies,
             ILogger? logger = null)
@@ -145,6 +159,7 @@ namespace Windows.IPC.Server
             _logger = logger;
         }
 
+        /// <inheritdoc />
         public Task<AuthenticationResult> AuthenticateAsync(
             ClientIdentity identity,
             CancellationToken cancellationToken = default)
@@ -180,12 +195,16 @@ namespace Windows.IPC.Server
         private readonly IClientAuthenticator[] _authenticators;
         private readonly ILogger? _logger;
 
+        /// <summary>创建依次执行多个鉴权器的组合鉴权器。</summary>
+        /// <param name='logger'>可选的日志记录器。</param>
+        /// <param name='authenticators'>需要全部通过的鉴权器；空集合将直接通过。</param>
         public CompositeAuthenticator(ILogger? logger, params IClientAuthenticator[] authenticators)
         {
             _authenticators = authenticators ?? throw new ArgumentNullException(nameof(authenticators));
             _logger = logger;
         }
 
+        /// <inheritdoc />
         public async Task<AuthenticationResult> AuthenticateAsync(
             ClientIdentity identity,
             CancellationToken cancellationToken = default)
@@ -212,11 +231,14 @@ namespace Windows.IPC.Server
     {
         private readonly ILogger? _logger;
 
+        /// <summary>创建不验证客户端身份的鉴权器。</summary>
+        /// <param name='logger'>可选的日志记录器。</param>
         public AllowAllAuthenticator(ILogger? logger = null)
         {
             _logger = logger;
         }
 
+        /// <inheritdoc />
         public Task<AuthenticationResult> AuthenticateAsync(
             ClientIdentity identity,
             CancellationToken cancellationToken = default)

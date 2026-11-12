@@ -27,15 +27,19 @@ namespace Windows.IPC.Abstractions
     [MessagePackObject]
     public class RequestMessage : IMessage
     {
+        /// <summary>请求的唯一标识符，用于匹配响应。</summary>
         [Key(0)]
         public string MessageId { get; set; } = Guid.NewGuid().ToString("N");
 
+        /// <summary>请求的消息类型标识。</summary>
         [Key(1)]
         public string MessageType { get; set; } = string.Empty;
 
+        /// <summary>请求的序列化负载。</summary>
         [Key(2)]
         public byte[] Payload { get; set; } = Array.Empty<byte>();
 
+        /// <summary>请求超时时间，单位为毫秒。</summary>
         [Key(3)]
         public int TimeoutMs { get; set; } = 30000;
     }
@@ -46,21 +50,27 @@ namespace Windows.IPC.Abstractions
     [MessagePackObject]
     public class ResponseMessage : IMessage
     {
+        /// <summary>对应请求的消息标识符。</summary>
         [Key(0)]
         public string MessageId { get; set; } = string.Empty;
 
+        /// <summary>响应的消息类型标识。</summary>
         [Key(1)]
         public string MessageType { get; set; } = string.Empty;
 
+        /// <summary>请求处理是否成功。</summary>
         [Key(2)]
         public bool IsSuccess { get; set; }
 
+        /// <summary>响应的序列化负载。</summary>
         [Key(3)]
         public byte[] Payload { get; set; } = Array.Empty<byte>();
 
+        /// <summary>处理失败时的可选错误信息。</summary>
         [Key(4)]
         public string? ErrorMessage { get; set; }
 
+        /// <summary>处理失败时的可选错误代码。</summary>
         [Key(5)]
         public string? ErrorCode { get; set; }
     }
@@ -71,12 +81,15 @@ namespace Windows.IPC.Abstractions
     [MessagePackObject]
     public class NotificationMessage : IMessage
     {
+        /// <summary>通知的唯一标识符。</summary>
         [Key(0)]
         public string MessageId { get; set; } = Guid.NewGuid().ToString("N");
 
+        /// <summary>通知的消息类型标识。</summary>
         [Key(1)]
         public string MessageType { get; set; } = string.Empty;
 
+        /// <summary>通知的序列化负载。</summary>
         [Key(2)]
         public byte[] Payload { get; set; } = Array.Empty<byte>();
     }

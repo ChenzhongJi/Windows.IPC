@@ -62,10 +62,15 @@ namespace Windows.IPC.Server
     /// </summary>
     public class FileVersionInfo
     {
+        /// <summary>文件版本。</summary>
         public string FileVersion { get; set; } = string.Empty;
+        /// <summary>产品版本。</summary>
         public string ProductVersion { get; set; } = string.Empty;
+        /// <summary>文件版本元数据中的公司名称。</summary>
         public string CompanyName { get; set; } = string.Empty;
+        /// <summary>产品名称。</summary>
         public string ProductName { get; set; } = string.Empty;
+        /// <summary>文件描述。</summary>
         public string FileDescription { get; set; } = string.Empty;
     }
 
