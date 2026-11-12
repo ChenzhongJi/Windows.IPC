@@ -1,0 +1,32 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Build core and console samples
+        shell: pwsh
+        run: |
+          dotnet build src/Windows.IPC/Windows.IPC.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build samples/SimpleServer/SimpleServer.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build samples/SimpleClient/SimpleClient.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run unit tests
+        run: dotnet test tests/Windows.IPC.Tests/Windows.IPC.Tests.csproj --configuration Release
+      - name: Run integration tests
+        run: dotnet test tests/Windows.IPC.IntegrationTests/Windows.IPC.IntegrationTests.csproj --configuration Release
