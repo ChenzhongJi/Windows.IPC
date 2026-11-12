@@ -493,7 +493,6 @@ namespace Windows.IPC.Server
                 // 添加到客户端管理器
                 if (_clientManager.AddClient(client))
                 {
-                    // pipeServer 现在由 connection 管理，不要释放
                     await HandleClientAsync(client, cancellationToken).ConfigureAwait(false);
                 }
                 else
@@ -515,6 +514,20 @@ namespace Windows.IPC.Server
             {
                 _logger?.LogError(ex, "Error setting up accepted connection");
                 pipeServer?.Dispose();
+            }
+            finally
+            {
+                try
+                {
+                    activeStream.Dispose();
+                }
+                finally
+                {
+                    if (!ReferenceEquals(activeStream, pipeServer))
+                    {
+                        pipeServer.Dispose();
+                    }
+                }
             }
         }
 
@@ -705,7 +718,7 @@ namespace Windows.IPC.Server
         /// 
         /// NamedPipeConnection 内部的接收循环负责从管道读取原始数据、解码帧、
         /// 写入接收 Channel。此方法从 Channel 取出已解码的消息进行分发。
-        /// 当消息消费速度 < 生产速度时，接收 Channel 积满 → 背压传导到发送端。
+        /// 当消息消费速度 &lt; 生产速度时，接收 Channel 积满 → 背压传导到发送端。
         /// </summary>
         private async Task HandleClientAsync(ConnectedClient client, CancellationToken cancellationToken)
         {
@@ -905,8 +918,8 @@ namespace Windows.IPC.Server
     /// </summary>
     public class ClientAuthenticationEventArgs : EventArgs
     {
-        public ClientIdentity Identity { get; set; }
-        public AuthenticationResult Result { get; set; }
+        public ClientIdentity? Identity { get; set; }
+        public AuthenticationResult? Result { get; set; }
     }
 
     /// <summary>

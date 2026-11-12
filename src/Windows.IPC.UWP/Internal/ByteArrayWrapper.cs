@@ -8,7 +8,7 @@ namespace Windows.IPC.UWP.Internal
     /// <summary>
     /// 字节数组包装类（用于序列化）
     /// </summary>
-    [MessagePackObject]
+    [MessagePackObject(AllowPrivate = true)]
     internal class ByteArrayWrapper
     {
         [Key(0)]

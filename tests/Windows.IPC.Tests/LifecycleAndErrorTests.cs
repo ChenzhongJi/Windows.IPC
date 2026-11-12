@@ -302,12 +302,23 @@ namespace Windows.IPC.Tests
                 HeartbeatIntervalMs = 0
             });
 
+            var bothClientsConnected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var connectionCount = 0;
+            server.ClientConnected += (sender, args) =>
+            {
+                if (Interlocked.Increment(ref connectionCount) == 2)
+                {
+                    bothClientsConnected.TrySetResult(true);
+                }
+            };
+
             try
             {
                 await server.StartAsync();
                 await client1.ConnectAsync();
                 await client2.ConnectAsync();
 
+                Assert.Same(bothClientsConnected.Task, await Task.WhenAny(bothClientsConnected.Task, Task.Delay(5000)));
                 Assert.Equal(2, server.ConnectedClientCount);
 
                 // Act — 停止服务端
@@ -399,7 +410,7 @@ namespace Windows.IPC.Tests
         }
 
         [Fact]
-        public async Task IpcClient_AfterDispose_ThrowsObjectDisposedException()
+        public void IpcClient_AfterDispose_ThrowsObjectDisposedException()
         {
             // Arrange
             var client = new IpcClient();

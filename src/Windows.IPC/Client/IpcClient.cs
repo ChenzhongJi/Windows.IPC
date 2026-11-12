@@ -35,6 +35,8 @@ namespace Windows.IPC.Client
         private bool _disposed;
         private int _disposeState = 0; // 0 = 未释放, 1 = 正在释放, 2 = 已释放
         private readonly object _stateLock = new object();
+        private readonly object _reconnectionLock = new object();
+        private bool _disconnectRequested;
 
         public ConnectionState State
         {
@@ -90,6 +92,18 @@ namespace Windows.IPC.Client
         /// 连接到服务端
         /// </summary>
         public async Task ConnectAsync(CancellationToken cancellationToken = default)
+        {
+            ThrowIfDisposed();
+
+            lock (_reconnectionLock)
+            {
+                _disconnectRequested = false;
+            }
+
+            await ConnectCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task ConnectCoreAsync(CancellationToken cancellationToken)
         {
             ThrowIfDisposed();
 
@@ -235,11 +249,6 @@ namespace Windows.IPC.Client
         {
             ThrowIfDisposed();
 
-            if (State == ConnectionState.Disconnected)
-            {
-                return;
-            }
-
             _logger?.LogInformation("Disconnecting...");
 
             await DisconnectCoreAsync(isDisposing: false).ConfigureAwait(false);
@@ -252,14 +261,23 @@ namespace Windows.IPC.Client
         /// </summary>
         private async Task DisconnectCoreAsync(bool isDisposing)
         {
-            // 停止重连
-            _reconnector?.Stop();
+            lock (_reconnectionLock)
+            {
+                _disconnectRequested = true;
+                _receiveCts?.Cancel();
+            }
+
+            await _reconnector.StopAsync().ConfigureAwait(false);
+
+            lock (_reconnectionLock)
+            {
+                _receiveCts?.Cancel();
+            }
 
             // 停止心跳
             StopHeartbeat();
 
             // 停止接收循环
-            _receiveCts?.Cancel();
             if (_receiveLoopTask != null)
             {
                 try
@@ -408,7 +426,7 @@ namespace Windows.IPC.Client
         /// 分发给 RequestManager（响应消息）或 NotificationReceived 事件（通知消息）。
         /// 
         /// 这种架构实现了端到端背压：
-        /// 当消息消费速度 < 生产速度时，接收 Channel 积满 →
+        /// 当消息消费速度 &lt; 生产速度时，接收 Channel 积满 →
         /// 读取循环暂停 → 管道缓冲区填满 → 发送端 WriteAsync 阻塞 →
         /// 发送端自然降速。
         /// </summary>
@@ -425,7 +443,16 @@ namespace Windows.IPC.Client
                     if (message == null)
                     {
                         _logger?.LogWarning("Connection closed by server");
-                        State = ConnectionState.Disconnected;
+                        if (_options.ReconnectionPolicy.Enabled && !cancellationToken.IsCancellationRequested)
+                        {
+                            StopHeartbeat();
+                            State = ConnectionState.Reconnecting;
+                            StartReconnection(cancellationToken);
+                        }
+                        else
+                        {
+                            State = ConnectionState.Disconnected;
+                        }
                         break;
                     }
 
@@ -449,14 +476,17 @@ namespace Windows.IPC.Client
                 _logger?.LogError(ex, "Dispatch loop error");
 
                 // 触发重连
-                if (_options.ReconnectionPolicy.Enabled)
+                if (_options.ReconnectionPolicy.Enabled && !cancellationToken.IsCancellationRequested)
                 {
+                    StopHeartbeat();
                     State = ConnectionState.Reconnecting;
-                    _reconnector.Start();
+                    StartReconnection(cancellationToken);
                 }
                 else
                 {
-                    State = ConnectionState.Faulted;
+                    State = cancellationToken.IsCancellationRequested
+                        ? ConnectionState.Disconnected
+                        : ConnectionState.Faulted;
                 }
             }
 
@@ -466,6 +496,17 @@ namespace Windows.IPC.Client
         /// <summary>
         /// 重连逻辑
         /// </summary>
+        private void StartReconnection(CancellationToken cancellationToken)
+        {
+            lock (_reconnectionLock)
+            {
+                if (!_disconnectRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    _reconnector.Start();
+                }
+            }
+        }
+
         private async Task<bool> ReconnectAsync(CancellationToken cancellationToken)
         {
             try
@@ -474,7 +515,7 @@ namespace Windows.IPC.Client
                 Cleanup();
 
                 // 尝试重新连接
-                await ConnectAsync(cancellationToken).ConfigureAwait(false);
+                await ConnectCoreAsync(cancellationToken).ConfigureAwait(false);
 
                 return true;
             }
@@ -594,14 +635,17 @@ namespace Windows.IPC.Client
         /// </summary>
         private void Cleanup()
         {
-            _connection?.Dispose();
-            _connection = null;
+            lock (_reconnectionLock)
+            {
+                _connection?.Dispose();
+                _connection = null;
 
-            _pipeStream?.Dispose();
-            _pipeStream = null;
+                _pipeStream?.Dispose();
+                _pipeStream = null;
 
-            _receiveCts?.Dispose();
-            _receiveCts = null;
+                _receiveCts?.Dispose();
+                _receiveCts = null;
+            }
         }
 
         #region Event Handlers

@@ -73,12 +73,25 @@ namespace Windows.IPC.Client
     {
         private readonly ReconnectionPolicy _policy;
         private readonly Func<CancellationToken, Task<bool>> _reconnectFunc;
+        private readonly object _sync = new object();
         private CancellationTokenSource? _cts;
         private Task? _reconnectTask;
         private int _attemptCount;
+        private int _stopCount;
+        private bool _running;
+        private bool _restartRequested;
         private bool _disposed;
 
-        public bool IsReconnecting => _reconnectTask != null && !_reconnectTask.IsCompleted;
+        public bool IsReconnecting
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _running;
+                }
+            }
+        }
 
         public event EventHandler<ReconnectionEventArgs>? ReconnectionStarted;
         public event EventHandler<ReconnectionEventArgs>? ReconnectionSucceeded;
@@ -95,43 +108,104 @@ namespace Windows.IPC.Client
         /// </summary>
         public void Start()
         {
-            if (_disposed)
-                throw new ObjectDisposedException(nameof(Reconnector));
+            lock (_sync)
+            {
+                if (_disposed)
+                    throw new ObjectDisposedException(nameof(Reconnector));
 
-            if (IsReconnecting)
-                return;
+                if (!_policy.Enabled || _stopCount > 0)
+                    return;
 
-            if (!_policy.Enabled)
-                return;
+                if (_running)
+                {
+                    _restartRequested = true;
+                    return;
+                }
 
-            _cts = new CancellationTokenSource();
-            _attemptCount = 0;
-            _reconnectTask = ReconnectLoopAsync(_cts.Token);
+                _cts?.Dispose();
+                _cts = new CancellationTokenSource();
+                _attemptCount = 0;
+                _running = true;
+                var cancellationToken = _cts.Token;
+                _reconnectTask = Task.Run(() => RunAsync(cancellationToken));
+            }
         }
 
         /// <summary>
         /// 停止重连
         /// </summary>
-        public void Stop()
+        public async Task StopAsync()
         {
-            _cts?.Cancel();
-
-            var taskToWait = _reconnectTask; // 获取当前任务的快照以避免竞态条件
-            if (taskToWait != null && !taskToWait.IsCompleted)
+            CancellationTokenSource? cancellationSource;
+            Task? taskToWait;
+            lock (_sync)
             {
+                _stopCount++;
+                _restartRequested = false;
+                cancellationSource = _cts;
+                taskToWait = _reconnectTask;
+            }
+
+            try
+            {
+                cancellationSource?.Cancel();
+                if (taskToWait == null)
+                    return;
+
                 try
                 {
-                    // 使用 Task.Run 避免在有同步上下文（如 UI 线程）时死锁
-                    // 直接 GetAwaiter().GetResult() 在 UI 线程上会造成：
-                    // 重连循环的 await 完成后需要回到 UI 线程续延，但 UI 线程被此调用阻塞
-                    Task.Run(() => taskToWait).GetAwaiter().GetResult();
+                    await taskToWait.ConfigureAwait(false);
                 }
                 catch
                 {
                     // 忽略重连任务的异常，因为我们正在停止它
                 }
             }
-            _reconnectTask = null;
+            finally
+            {
+                lock (_sync)
+                {
+                    _stopCount--;
+                    if (_disposed && _stopCount == 0)
+                    {
+                        _cts?.Dispose();
+                        _cts = null;
+                    }
+                }
+            }
+        }
+
+        private async Task RunAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (true)
+                {
+                    await ReconnectLoopAsync(cancellationToken).ConfigureAwait(false);
+                    lock (_sync)
+                    {
+                        if (_restartRequested && _stopCount == 0 && !cancellationToken.IsCancellationRequested)
+                        {
+                            _restartRequested = false;
+                            _attemptCount = 0;
+                            continue;
+                        }
+
+                        _restartRequested = false;
+                        _running = false;
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                lock (_sync)
+                {
+                    _restartRequested = false;
+                    _running = false;
+                }
+                throw;
+            }
         }
 
         /// <summary>
@@ -157,13 +231,13 @@ namespace Windows.IPC.Client
                     // 尝试重连
                     var success = await _reconnectFunc(cancellationToken).ConfigureAwait(false);
 
-                    if (success)
+                    if (success && !cancellationToken.IsCancellationRequested)
                     {
                         OnReconnectionSucceeded(_attemptCount);
                         return;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     // 记录错误但继续尝试
                     if (cancellationToken.IsCancellationRequested)
@@ -213,11 +287,13 @@ namespace Windows.IPC.Client
 
         public void Dispose()
         {
-            if (_disposed) return;
-            _disposed = true;
+            lock (_sync)
+            {
+                if (_disposed) return;
+                _disposed = true;
+            }
 
-            Stop();
-            _cts?.Dispose();
+            StopAsync().GetAwaiter().GetResult();
         }
     }
 

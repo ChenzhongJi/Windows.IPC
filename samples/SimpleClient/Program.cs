@@ -137,7 +137,7 @@ namespace SimpleClient
     {
         private readonly string _categoryName;
         public ConsoleLogger(string categoryName) => _categoryName = categoryName;
-        public IDisposable BeginScope<TState>(TState state) => null;
+        public IDisposable? BeginScope<TState>(TState state) => null;
         public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)

@@ -5,6 +5,10 @@
 	  <LangVersion>9.0</LangVersion>
 	  <Nullable>enable</Nullable>
   </PropertyGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Windows.IPC.Tests" />
+	</ItemGroup>
 	
 	<ItemGroup>
 		<PackageReference Include="System.Threading.Tasks.Extensions" Version="4.5.4" />

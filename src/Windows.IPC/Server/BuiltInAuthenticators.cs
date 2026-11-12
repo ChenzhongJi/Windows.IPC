@@ -151,7 +151,7 @@ namespace Windows.IPC.Server
         {
             var companyName = identity.VersionInfo?.CompanyName;
 
-            if (string.IsNullOrEmpty(companyName))
+            if (companyName == null || companyName.Length == 0)
             {
                 _logger?.LogWarning("Client {ProcessName} has no company name in version info",
                     identity.ProcessName);

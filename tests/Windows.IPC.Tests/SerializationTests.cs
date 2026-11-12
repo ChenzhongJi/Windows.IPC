@@ -2,12 +2,23 @@
 using System;
 using Windows.IPC.Abstractions;
 using Windows.IPC.Serialization;
+using Windows.IPC.UWP.Internal;
 using Xunit;
 
 namespace Windows.IPC.Tests
 {
     public class SerializationTests
     {
+        [Fact]
+        public void ByteArrayWrapper_SerializeDeserialize_Success()
+        {
+            var original = new ByteArrayWrapper { Data = new byte[] { 1, 2, 3, 4 } };
+            var bytes = MessageSerializer.Serialize(original);
+            var deserialized = MessageSerializer.Deserialize<ByteArrayWrapper>(bytes);
+
+            Assert.Equal(original.Data, deserialized.Data);
+        }
+
         [Fact]
         public void RequestMessage_SerializeDeserialize_Success()
         {

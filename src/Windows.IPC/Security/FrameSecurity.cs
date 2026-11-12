@@ -183,6 +183,7 @@ namespace Windows.IPC.Security
         /// <param name="payload">消息负载</param>
         /// <param name="sequenceId">序列号</param>
         /// <param name="consumedBytes">已消费字节数</param>
+        /// <param name="maxMessageSize">允许的最大消息负载大小（字节）</param>
         /// <returns>是否成功解码完整帧</returns>
         public bool TryDecodeSecureFrame(
             ReadOnlySpan<byte> buffer,

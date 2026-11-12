@@ -1,4 +1,5 @@
 ﻿using System;
+#nullable enable annotations
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;

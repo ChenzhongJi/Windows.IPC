@@ -18,5 +18,6 @@
 	<ItemGroup>
 	  <ProjectReference Include="..\..\src\Windows.IPC.Contracts\Windows.IPC.Contracts.csproj" />
 	  <ProjectReference Include="..\..\src\Windows.IPC\Windows.IPC.csproj" />
+	  <ProjectReference Include="..\..\src\Windows.IPC.UWP\Windows.IPC.UWP.csproj" />
 	</ItemGroup>
 </Project>

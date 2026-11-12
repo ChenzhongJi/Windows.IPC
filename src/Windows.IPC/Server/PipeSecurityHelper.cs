@@ -42,7 +42,7 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 获取安全模式对应的 SDDL 字符串
         /// </summary>
-        public static string GetSddlForMode(PipeSecurityMode mode)
+        public static string? GetSddlForMode(PipeSecurityMode mode)
         {
             return mode switch
             {
@@ -56,9 +56,9 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 创建管道安全设置
         /// </summary>
-        public static PipeSecurity CreatePipeSecurity(
+        public static PipeSecurity? CreatePipeSecurity(
             PipeSecurityMode mode = PipeSecurityMode.Default,
-            ILogger logger = null)
+            ILogger? logger = null)
         {
             if (mode == PipeSecurityMode.Default)
                 return null;
@@ -82,9 +82,9 @@ namespace Windows.IPC.Server
         /// <summary>
         /// 从 SDDL 字符串创建 PipeSecurity
         /// </summary>
-        public static PipeSecurity CreateFromSddl(string sddl, ILogger logger = null)
+        public static PipeSecurity? CreateFromSddl(string? sddl, ILogger? logger = null)
         {
-            if (string.IsNullOrWhiteSpace(sddl))
+            if (sddl == null || string.IsNullOrWhiteSpace(sddl))
             {
                 logger?.LogWarning("SDDL string is empty");
                 return null;
@@ -107,7 +107,7 @@ namespace Windows.IPC.Server
 
         #region Private Methods
 
-        private static PipeSecurity CreateRelaxedSecurityInternal(ILogger logger)
+        private static PipeSecurity? CreateRelaxedSecurityInternal(ILogger? logger)
         {
             try
             {
@@ -129,7 +129,7 @@ namespace Windows.IPC.Server
             }
         }
 
-        private static PipeSecurity CreateRestrictedSecurityInternal(ILogger logger)
+        private static PipeSecurity? CreateRestrictedSecurityInternal(ILogger? logger)
         {
             try
             {
@@ -166,7 +166,7 @@ namespace Windows.IPC.Server
             }
         }
 
-        private static PipeSecurity CreateUwpCompatibleSecurityInternal(ILogger logger)
+        private static PipeSecurity? CreateUwpCompatibleSecurityInternal(ILogger? logger)
         {
             return CreateFromSddl(SddlUwpCompatible, logger);
         }

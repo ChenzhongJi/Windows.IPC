@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+#nullable enable annotations
 using System;
 using System.Runtime.Serialization;
 using System.Threading;
