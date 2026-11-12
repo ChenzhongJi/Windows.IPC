@@ -48,12 +48,21 @@ namespace Windows.IPC.Contracts.Messages
     [MessagePackObject]
     public class BroadcastNotification
     {
+        /// <summary>
+        /// 广播消息的内容。
+        /// </summary>
         [Key(0)]
         public string Message { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 广播消息的时间戳。
+        /// </summary>
         [Key(1)]
         public System.DateTime Timestamp { get; set; }
 
+        /// <summary>
+        /// 广播消息的可选类别。
+        /// </summary>
         [Key(2)]
         public string? Category { get; set; }
     }

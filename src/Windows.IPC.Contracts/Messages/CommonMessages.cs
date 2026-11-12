@@ -19,6 +19,9 @@ namespace Windows.IPC.Contracts.Messages
     [MessagePackObject]
     public class EmptyResponse
     {
+        /// <summary>
+        /// 请求是否成功。
+        /// </summary>
         [Key(0)]
         public bool Success { get; set; } = true;
     }
